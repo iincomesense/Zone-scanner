@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Auto-generated market cap files (ये rozana change hoti hain)
+symbols/nifty_fo_45000cr.txt
+symbols/fo_market_cap_report.csv
+symbols/*_cr.txt
+
+# लेकिन base list जरूर track हो (override)
+!symbols/all_nse_fo_stocks.txt
+
+# Live scan history
+live_scan_history/*.csv
+
+# Sensitive
+config/settings.py
+.env
+credentials.json
