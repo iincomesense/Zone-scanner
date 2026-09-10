@@ -613,3 +613,23 @@ def resample_nse_session(df: pd.DataFrame, n_hours: int,
 
     result = pd.concat(out_frames).sort_index()
     return result
+# ==============================================================================
+# RECOMMENDED TRADE SETUP  -- Helper function for zscan.py compatibility
+# (Ye function scanner ko batata hai ki kaunse pattern types aur kya minimum
+#  quality criteria "recommended"/high-probability trade setups maane jayein)
+# ==============================================================================
+def recommended_trade_setup() -> dict:
+    """
+    zscan.py isse "recommended" filter ke liye use karta hai.
+    Return dict me ye keys hoti hain:
+      - patterns: list[str]  -> high-probability pattern types
+      - min_score: int       -> recommended minimum density score
+      - hq_only: bool        -> sirf HQ zones recommend karna hai ya nahi
+      - max_touch_count: int -> "Fresh"/kam-tested zones ko prefer karna
+    """
+    return {
+        "patterns": ["RBR", "DBD", "DBR", "RBD"],  # sabhi 4 valid pattern types
+        "min_score": 60,        # 40 se zyada strict, but hq-threshold (90) se kam
+        "hq_only": False,
+        "max_touch_count": 1,   # Fresh ya sirf 1 baar tested zones behtar hoti hain
+    }
