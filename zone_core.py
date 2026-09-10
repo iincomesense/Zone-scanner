@@ -3,10 +3,14 @@
 ZONE CORE  -  Pine Script v6 "Zone" Indicator का Exact Python Conversion
 Original Indicator: © iincomesense (MPL-2.0)
 --------------------------------------------------------------------------------
-NOTE: यह फाइल दिए गए Pine Script v6 कोड का line-by-line verified conversion है।
-हर rule, condition, threshold, scoring logic बिल्कुल वैसी ही रखी गई है।
-सिर्फ debug=True करने पर हर reject point पर reason print होता है (logic पर
-कोई असर नहीं पड़ता)।
+SECTION A (ऊपर): ZoneEngine + Box + Zone(core fields) — यह बिल्कुल वही है जो
+आपने पेस्ट किया था। एक भी rule/threshold/condition नहीं बदला गया है।
+
+SECTION B (नीचे, साफ अलग किया हुआ): "COMPATIBILITY LAYER" — यह सिर्फ इसलिए
+जोड़ा गया है ताकि zscan.py/app.py (जिन्हें settings(), scan_zones(),
+recommended_trade_setup() जैसे functions चाहिए) crash न हों। यहां कोई भी
+नया detection rule/threshold नहीं जोड़ा गया — सिर्फ पहले से मौजूद values
+(densityScore, proxVal, slVal, volume, आदि) को expose/format किया गया है।
 ================================================================================
 """
 
@@ -15,6 +19,10 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import List, Optional
 
+
+# ==============================================================================
+# SECTION A — बिल्कुल Pine Script v6 जैसा (आपकी पेस्ट की हुई फाइल से UNCHANGED)
+# ==============================================================================
 
 @dataclass
 class Box:
@@ -37,6 +45,7 @@ class Box:
 
 @dataclass
 class Zone:
+    # ---------------- Pine v6 CORE FIELDS (UNCHANGED, koi default nahi) ----------------
     proxVal: float
     distVal: float
     slVal: float
@@ -58,6 +67,22 @@ class Zone:
     legInTR: float
     legOutTR: float
     zoneBox: Box
+    # ---------------- COMPATIBILITY-ONLY FIELDS (naye, defaults ke saath) ----------------
+    # NOTE: Yeh fields Pine v6 ke DETECTION LOGIC ka HISSA NAHI hain. Inhe sirf
+    # app.py/zscan.py ke display-columns (jaise "Score10", "Entry status")
+    # crash na hon isliye jodha gaya hai. Values SECTION B me, ZoneEngine.run()
+    # ke BAAD, already-computed cheezon se hi bharai jaati hain — koi nayi
+    # detection condition nahi.
+    riskPct: float = 0.0
+    score10: int = 0
+    baseColourOK: bool = True
+    timestamp: object = None
+    entryStatus: str = ""
+    entryPrice: Optional[float] = None
+    gapToLegIn: float = 0.0
+    legInVolX: float = float("nan")
+    legOutVolX: float = float("nan")
+    retestVolX: float = float("nan")
 
 
 class ZoneEngine:
@@ -578,19 +603,13 @@ class ZoneEngine:
 
 
 # ==============================================================================
-# NSE SESSION-ANCHORED N-HOUR RESAMPLER
-# Root Cause Fix: TradingView "2h" chart NSE session 9:15 se anchor karke bane
-# hote hain. yfinance sirf max "60m" deta hai (native 120m/2h NHI hai NSE ke
-# liye). Isliye 60m data ko session-anchored tareeke se 2h/3h/4h me convert
-# karna zaroori hai, taaki candle boundaries TradingView jaisi hi bane.
+# NSE SESSION-ANCHORED N-HOUR RESAMPLER  (आपकी फाइल में पहले से मौजूद, unchanged)
 # ==============================================================================
 def resample_nse_session(df: pd.DataFrame, n_hours: int,
                           session_start="09:15", session_end="15:30") -> pd.DataFrame:
     """
     1m/5m/15m/60m OHLCV data ko NSE session (9:15 AM anchor) ke hisaab se
     N-hour bars me convert karta hai — bilkul TradingView jaisa.
-
-    Example n_hours=2 -> bars: 09:15-11:15, 11:15-13:15, 13:15-15:15, 15:15-15:30
     """
     df = df.sort_index().copy()
     out_frames = []
@@ -613,23 +632,278 @@ def resample_nse_session(df: pd.DataFrame, n_hours: int,
 
     result = pd.concat(out_frames).sort_index()
     return result
+
+
 # ==============================================================================
-# RECOMMENDED TRADE SETUP  -- Helper function for zscan.py compatibility
-# (Ye function scanner ko batata hai ki kaunse pattern types aur kya minimum
-#  quality criteria "recommended"/high-probability trade setups maane jayein)
+# SECTION B — COMPATIBILITY LAYER (नया हिस्सा — सिर्फ zscan.py/app.py को crash
+# होने से बचाने के लिए)
+# --------------------------------------------------------------------------
+# ⚠️ यहां से नीचे कोई भी function ZoneEngine के DETECTION LOGIC (Section A) को
+# नहीं छूता। सिर्फ पहले से मौजूद values (densityScore, proxVal, slVal, volume
+# आदि) को अलग नाम/फॉर्मेट में expose किया गया है ताकि zscan.py के मौजूदा calls
+# (जो अभी crash हो रहे थे) काम करने लगें।
 # ==============================================================================
+
+def settings() -> dict:
+    """
+    ZoneEngine ke Pine v6 EXACT default parameters (Section 1) ka dict.
+    zscan.scan() isko lekar override karta hai (min_score, strict-mode).
+    NOTE: yahan ki values badalne se Pine v6 ke asli indicator defaults nahi
+    badalte — yeh sirf ek convenience wrapper hai.
+    """
+    return dict(
+        accountCapital=25000.0, riskPct=0.5, targetRR=5.0, slBufferAtr=0.1,
+        atrPeriod=14, volSmaPeriod=20, legOutTrMult=1.2, legOutMinTrRatio=1.0,
+        hqLegOutTrMult=2.0, hqLegInAtrMult=1.5, maxBaseAtrMult=1.0, maxWickPct=0.30,
+        minBaseCountInput=1, maxBaseCountInput=3, legInMinAtrMult=1.0, minClvPct=0.60,
+        legInToBaseSizeMult=2.0, legInMinBodyPct=0.60, useImbalance=True,
+        maxImbalanceMult=1.0, relaxGapCapOvernight=True, genuineGapBonus=10,
+        overnightGapBonus=15, rejectOppositeCoverPct=0.50, minValidScore=40,
+        hqScoreThreshold=90, legOutBodyHeavyPct=0.60, testedLegOutRetracePct=0.50,
+        maxTestedCount=2,
+    )
+
+
+def scan_zones(df: pd.DataFrame, params: dict = None) -> List[Zone]:
+    """
+    zscan.py ka main entry point (`zone_core.scan_zones(df, params=params)`).
+    Params dict me se SIRF wahi keys li jaati hain jo ZoneEngine.__init__
+    (Pine v6 exact) accept karta hai. Koi bhi extra/unknown key (jaise
+    zscan.py ke strict-mode ke "volume_gate", "legInToBaseSizeMultSingleBase"
+    placeholder keys) chup-chaap ignore ho jaati hain — isse ZoneEngine ka
+    Pine v6 logic kabhi silently nahi badalta.
+    """
+    import inspect
+    params = dict(params if params is not None else settings())
+    valid_keys = set(inspect.signature(ZoneEngine.__init__).parameters) - {"self", "df"}
+    engine_kwargs = {k: v for k, v in params.items() if k in valid_keys}
+    engine = ZoneEngine(df, **engine_kwargs)
+    zones = engine.run()
+    _annotate_zone_extras(zones, df, engine)
+    return zones
+
+
+def _annotate_zone_extras(zones: List[Zone], df: pd.DataFrame, engine: "ZoneEngine") -> None:
+    """
+    ⚠️ Yeh function ZoneEngine ke Section 4 (detection) ko BILKUL NAHI chhoo
+    ta — sirf already-computed values (volume, vol_sma, densityScore,
+    proxVal/slVal, state) ko Zone object ki naye display-fields me daalta
+    hai, taaki app.py ke table columns crash na hon.
+    """
+    for z in zones:
+        # timestamp — Pine v6 ke apne hi createdBarIndex se
+        try:
+            z.timestamp = df.index[z.createdBarIndex]
+        except Exception:
+            z.timestamp = None
+
+        # riskPct — proxVal/slVal se hi (Pine v6 ke apne levels, koi naya formula nahi)
+        z.riskPct = round(abs(z.proxVal - z.slVal) / z.proxVal * 100, 3) if z.proxVal else 0.0
+
+        # score10 — sirf densityScore (0-100) ko 0-10 scale me dikhana
+        z.score10 = max(0, min(10, round(z.densityScore / 10)))
+
+        # entryStatus — Pine v6 ke apne "state" field (Fresh/Tested/Broken,
+        # jo _update_zone_states se hi aata hai) ka naam app.py ki terminology
+        # me map karna. KOI NAYA STATE-TRANSITION RULE NAHI JODA GAYA.
+        if z.state == "Fresh":
+            z.entryStatus = "Waiting"
+        elif z.state == "Tested":
+            z.entryStatus = "Triggered"
+            z.entryPrice = z.proxVal
+        elif z.state == "Broken":
+            z.entryStatus = "Failed-Broken"
+
+        # legInVolX / legOutVolX — legIn/legOut ki bar-position Pine v6 ki
+        # apni hi indexing se nikalte hain: legOutIdx=0 -> pos=createdBarIndex;
+        # legInIdx=bCount+1 -> pos = startBarIndex - 1 (startBarIndex = i-bCount)
+        pos_legOut = z.createdBarIndex
+        pos_legIn = z.startBarIndex - 1
+        try:
+            vs_out = engine.vol_sma[pos_legOut]
+            legOutVol = engine.volume[pos_legOut]
+            z.legOutVolX = round(legOutVol / vs_out, 2) if vs_out and vs_out == vs_out else float("nan")
+        except Exception:
+            z.legOutVolX = float("nan")
+        try:
+            vs_in = engine.vol_sma[pos_legIn]
+            legInVol = engine.volume[pos_legIn]
+            z.legInVolX = round(legInVol / vs_in, 2) if vs_in and vs_in == vs_in else float("nan")
+        except Exception:
+            z.legInVolX = float("nan")
+
+        # gapToLegIn — legOutTR/legInTR ka farak (dono Pine v6 me already
+        # Zone fields hain) — sirf display ke liye proxy value
+        z.gapToLegIn = round(abs(z.legOutTR - z.legInTR), 2)
+
+        # baseColourOK — Pine v6 me "hasOppositeColorBase" scoring bonus ke
+        # liye already calculate hoti hai par Zone me store nahi hoti. Yahan
+        # base colours dobara reconstruct karna precise nahi hoga, isliye
+        # safe default True rakha gaya hai — ZoneEngine ke scoring/detection
+        # par iska KOI ASAR NAHI hai.
+
+        # retestVolX — Pine v6 ke state-machine me sirf touchCount badhta hai,
+        # kis exact bar par yeh nahi track hota — isliye NaN hi rehne diya
+        # gaya hai (app.py isse gracefully "—" dikhata hai).
+
+
 def recommended_trade_setup() -> dict:
     """
-    zscan.py isse "recommended" filter ke liye use karta hai.
-    Return dict me ye keys hoti hain:
-      - patterns: list[str]  -> high-probability pattern types
-      - min_score: int       -> recommended minimum density score
-      - hq_only: bool        -> sirf HQ zones recommend karna hai ya nahi
-      - max_touch_count: int -> "Fresh"/kam-tested zones ko prefer karna
+    zscan.py isko 'recommended' filter (patterns list) aur ROI-calc
+    (targetRR, risk_pct, capital, slBufferAtr) ke liye use karta hai.
+    Saari values Pine v6 ke apne hi input defaults se li gayi hain — koi
+    nayi/alag value nahi ghadi gayi. entry_mode='prox' kyunki Pine v6 me
+    entry hamesha proxVal (base high/low edge) par hoti hai.
     """
+    s = settings()
     return {
-        "patterns": ["RBR", "DBD", "DBR", "RBD"],  # sabhi 4 valid pattern types
-        "min_score": 60,        # 40 se zyada strict, but hq-threshold (90) se kam
-        "hq_only": False,
-        "max_touch_count": 1,   # Fresh ya sirf 1 baar tested zones behtar hoti hain
+        "patterns": ["RBR", "DBR", "DBD", "RBD"],   # Pine v6 ke sabhi 4 valid pattern types
+        "targetRR": s["targetRR"],
+        "risk_pct": s["riskPct"],
+        "capital": s["accountCapital"],
+        "slBufferAtr": s["slBufferAtr"],
+        "entry_mode": "prox",
     }
+
+
+def realistic_roi(zones: List[Zone], df: pd.DataFrame, rr: float = 5.0,
+                  risk_pct: float = 0.5, capital: float = 25000.0,
+                  patterns: Optional[List[str]] = None, buffer: float = 0.1,
+                  entry_mode: str = "prox", max_hold: int = 40) -> dict:
+    """
+    Forward-walk backtest — Pine v6 ke apne hi proxVal/slVal/tpVal levels use
+    karke (koi naya SL/TP formula nahi ghada gaya, wahi values jo ZoneEngine
+    Section 4 me nikalta hai). Har zone ke createdBarIndex ke baad max_hold
+    bars tak dekhte hain: SL (distal) pehle touch hota hai ya TP.
+    """
+    patterns = patterns or ["RBR", "DBR", "DBD", "RBD"]
+    if df is None or df.empty or not zones:
+        return {"n_trades": 0, "win_pct": 0.0, "net_roi_pct": 0.0}
+
+    highs = df["high"].to_numpy()
+    lows = df["low"].to_numpy()
+    n = len(df)
+    trades = []
+
+    for z in zones:
+        if z.patternType not in patterns:
+            continue
+        risk_amt = capital * (risk_pct / 100.0)
+        start = z.createdBarIndex + 1
+        for j in range(start, min(start + max_hold, n)):
+            if z.isDemand:
+                if lows[j] <= z.slVal:
+                    trades.append(-risk_amt)
+                    break
+                if highs[j] >= z.tpVal:
+                    trades.append(risk_amt * rr)
+                    break
+            else:
+                if highs[j] >= z.slVal:
+                    trades.append(-risk_amt)
+                    break
+                if lows[j] <= z.tpVal:
+                    trades.append(risk_amt * rr)
+                    break
+
+    n_trades = len(trades)
+    wins = sum(1 for t in trades if t > 0)
+    net = sum(trades)
+    return {
+        "n_trades": n_trades,
+        "win_pct": round(wins / n_trades * 100, 1) if n_trades else 0.0,
+        "net_roi_pct": round(net / capital * 100, 2) if capital else 0.0,
+    }
+
+
+def backtest_summary(zones: List[Zone], df: pd.DataFrame) -> dict:
+    """Sirf ginti/aggregation — koi detection rule nahi, sirf reporting."""
+    return {
+        "total": len(zones),
+        "fresh": sum(1 for z in zones if z.state == "Fresh"),
+        "tested": sum(1 for z in zones if z.state == "Tested"),
+        "broken": sum(1 for z in zones if z.state == "Broken"),
+        "hq": sum(1 for z in zones if z.isHQ),
+    }
+
+
+def latest_active_zones(zones: List[Zone]) -> List[Zone]:
+    """Fresh/Tested zones hi 'active' maani jaati hain — Pine v6 ke apne state se."""
+    return [z for z in zones if z.state in ("Fresh", "Tested")]
+
+
+def get_zone_alerts(zones: List[Zone], price: float, tolerance_pct: float = 0.5) -> List[Zone]:
+    """Current price ke us tolerance% ke andar wali active zones."""
+    out = []
+    for z in zones:
+        if z.state not in ("Fresh", "Tested") or not z.proxVal:
+            continue
+        if abs(price - z.proxVal) / z.proxVal * 100 <= tolerance_pct:
+            out.append(z)
+    return out
+
+
+def target_context(z: Zone, df: Optional[pd.DataFrame] = None,
+                   htf_df: Optional[pd.DataFrame] = None,
+                   market_df: Optional[pd.DataFrame] = None,
+                   vix: Optional[float] = None,
+                   spx_ret20: Optional[float] = None) -> dict:
+    """
+    ⚠️ Yeh Pine v6 indicator ka HISSA NAHI hai — app.py ke "TP-Score" display
+    badge (🎯/⚠) ke liye ek ALAG, optional analytics overlay hai. Ismein koi
+    bhi cheez Zone ke DETECTION (Section A) ko affect nahi karti.
+    """
+    def _ema(s, span):
+        return s.ewm(span=span, adjust=False).mean()
+
+    signs, why = {}, []
+
+    if market_df is not None and len(market_df) > 20 and "close" in market_df:
+        side = market_df["close"].iloc[-1] > _ema(market_df["close"], 20).iloc[-1]
+        signs["A"] = (side == z.isDemand)
+        why.append(f"A: Nifty {'>' if side else '<'} EMA20")
+    else:
+        signs["A"] = None
+
+    if htf_df is not None and len(htf_df) > 20 and "close" in htf_df:
+        sideh = htf_df["close"].iloc[-1] > _ema(htf_df["close"], 20).iloc[-1]
+        signs["B"] = (sideh == z.isDemand)
+        why.append(f"B: HTF {'>' if sideh else '<'} EMA20")
+    else:
+        signs["B"] = None
+
+    c = getattr(z, "legInVolX", float("nan"))
+    signs["C"] = (c >= 1.0) if c == c else None
+    if signs["C"] is not None:
+        why.append(f"C: legInVolX={c}")
+
+    r = getattr(z, "retestVolX", float("nan"))
+    signs["D"] = (r < 1.3) if r == r else None
+    if signs["D"] is not None:
+        why.append(f"D: retestVolX={r}")
+
+    if df is not None and len(df) > 21 and "close" in df:
+        e = _ema(df["close"], 20)
+        slope_up = e.iloc[-1] > e.iloc[-6]
+        signs["E"] = (slope_up == z.isDemand)
+        why.append(f"E: ownTF EMA20 slope {'up' if slope_up else 'down'}")
+    else:
+        signs["E"] = None
+
+    if vix is not None:
+        f_val = (vix >= 16.5 or (spx_ret20 is not None and spx_ret20 < 0)) if z.isDemand else (vix < 16.5)
+        signs["F"] = f_val
+        why.append(f"F: VIX={vix} spx20d={spx_ret20}")
+    else:
+        signs["F"] = None
+
+    known = {k: v for k, v in signs.items() if v is not None}
+    score = sum(1 for v in known.values() if v)
+    mx = len(known)
+    label = None
+    if mx:
+        label = "TP-High" if score / mx >= (4 / 6) else ("TP-Low" if score <= 2 else "TP-Mid")
+
+    out = {"score": score, "max": mx, "label": label, "why": why}
+    out.update(signs)
+    return out
