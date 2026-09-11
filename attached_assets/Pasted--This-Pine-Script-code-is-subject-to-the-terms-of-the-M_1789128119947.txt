@@ -1,0 +1,417 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © iincomesense
+
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © iincomesense
+
+//@version=6
+indicator("Zone ", overlay=true, max_bars_back=5000, max_boxes_count=500, max_labels_count=500)
+
+// ==============================================================================
+// 1. PARAMETERS & CONSTANTS
+// ==============================================================================
+accountCapital        = input.float(25000.0, "Account Capital")
+riskPct               = input.float(0.5,     "Risk %")
+targetRR              = input.float(5.0,     "Target RR")
+slBufferAtr           = input.float(0.1,     "SL Buffer ATR")
+
+atrPeriod             = input.int(14,        "ATR Period")
+volSmaPeriod          = input.int(20,        "Volume SMA Period")
+legOutTrMult          = input.float(1.2,     "Leg-Out TR Multiplier")
+legOutMinTrRatio      = input.float(1.0,     "Leg-Out Min TR Ratio vs Leg-In")
+hqLegOutTrMult        = input.float(2.0,     "HQ Leg-Out TR Multiplier")
+hqLegInAtrMult        = input.float(1.5,     "HQ Leg-In ATR Multiplier")
+maxBaseAtrMult        = input.float(1.0,     "Max Base TR ATR Multiplier")
+maxWickPct            = input.float(0.30,    "Max Wick %")
+
+minBaseCountInput     = input.int(1,         "Min Base Count")
+maxBaseCountInput     = input.int(3,         "Max Base Count")
+legInMinAtrMult       = input.float(1.0,     "Leg-In Min ATR Multiplier")
+minClvPct             = input.float(0.60,    "Min CLV %")
+legInToBaseSizeMult   = input.float(2.0,     "Leg-In to Base Size Multiplier")
+legInMinBodyPct       = input.float(0.60,    "Leg-In Min Body %")
+
+useImbalance          = input.bool(true,     "Use Imbalance")
+maxImbalanceMult      = input.float(1.0,     "Max Imbalance vs Leg-In Mult")
+relaxGapCapOvernight  = input.bool(true,     "Relax Gap Cap on Overnight")
+genuineGapBonus       = input.int(10,        "Genuine Gap Score Bonus")
+overnightGapBonus     = input.int(15,        "Overnight Gap Score Bonus")
+rejectOppositeCoverPct= input.float(0.50,    "Reject Opposite Cover %")
+
+minValidScore         = input.int(40,        "Min Valid Score")
+hqScoreThreshold      = input.int(90,        "HQ Score Threshold")
+legOutBodyHeavyPct    = input.float(0.60,    "Leg-Out Body Heavy Pressure %")
+
+testedLegOutRetracePct= input.float(0.50,    "Tested Leg-Out Retrace %")
+maxTestedCount        = input.int(2,         "Max Tested Count")
+
+HARD_MAX_BASE_COUNT = 3
+minBaseCount = math.max(1, math.min(minBaseCountInput, maxBaseCountInput))
+maxBaseCount = math.min(maxBaseCountInput, HARD_MAX_BASE_COUNT)
+
+// ==============================================================================
+// 2. HELPER FUNCTIONS & ARRAYS (v9.0 Gap-Aware True Range)
+// ==============================================================================
+true_range() =>
+    tr = high - low
+    if bar_index > 0
+        tr := math.max(tr, math.max(math.abs(high - close[1]), math.abs(low - close[1])))
+    tr
+
+current_tr = true_range()
+
+custom_atr(length) =>
+    ta.rma(current_tr, length)
+
+atr_val = custom_atr(atrPeriod)
+vol_sma = ta.sma(volume, volSmaPeriod)
+
+tr(idx) =>
+    prev_close = close[idx + 1]
+    math.max(high[idx] - low[idx], math.max(math.abs(high[idx] - prev_close), math.abs(low[idx] - prev_close)))
+
+is_bull(idx) => close[idx] > open[idx]
+is_bear(idx) => open[idx] > close[idx]
+
+wick_pct(idx) =>
+    rng = high[idx] - low[idx]
+    if rng == 0
+        0.0
+    else
+        wicks = (high[idx] - math.max(open[idx], close[idx])) + (math.min(open[idx], close[idx]) - low[idx])
+        wicks / rng
+
+body_pct(idx) =>
+    rng = high[idx] - low[idx]
+    if rng == 0
+        0.0
+    else
+        math.abs(close[idx] - open[idx]) / rng
+
+body_high_low(idx) =>
+    [math.max(open[idx], close[idx]), math.min(open[idx], close[idx])]
+
+isOvernightGap() =>
+    dayofweek != dayofweek[1] or time - time[1] > 86400000
+
+// ==============================================================================
+// 3. TYPES & COLLECTIONS
+// ==============================================================================
+type Zone
+    float proxVal
+    float distVal
+    float slVal
+    float tpVal
+    bool isDemand
+    bool isHQ
+    int densityScore
+    string patternType
+    string zoneCategory
+    string state
+    int touchCount
+    int startBarIndex
+    int createdBarIndex
+    int baseCount
+    float legOutHigh
+    float legOutLow
+    float legOutMidLevel
+    bool isOvernight
+    float legInTR
+    float legOutTR
+    box zoneBox
+
+var active_zones = array.new<Zone>()
+
+// ==============================================================================
+// 4. SCANNING ENGINE
+// ==============================================================================
+if bar_index >= math.max(atrPeriod, maxBaseCount + 3, 11) and not na(atr_val)
+    zoneFoundOnThisBar = false
+    
+    for bCount = minBaseCount to maxBaseCount
+        if zoneFoundOnThisBar
+            break
+            
+        legOutIdx = 0
+        legInIdx = bCount + 1
+        prevIdx = legInIdx + 1
+        
+        if na(atr_val[legInIdx])
+            continue
+            
+        // ---------------- LEG-IN ----------------
+        legInTR = tr(legInIdx)
+        legInLow = low[legInIdx]
+        legInHigh = high[legInIdx]
+        legInClose = close[legInIdx]
+        legInVol = volume[legInIdx]
+        legInRng = legInHigh - legInLow
+        
+        legInIsBull = is_bull(legInIdx)
+        legInIsBear = is_bear(legInIdx)
+        
+        if legInRng == 0 or body_pct(legInIdx) < legInMinBodyPct
+            continue
+            
+        prevIsBull = is_bull(prevIdx)
+        prevIsBear = is_bear(prevIdx)
+        isOppositeColor = (legInIsBull and prevIsBear) or (legInIsBear and prevIsBull)
+        
+        shouldRejectOverlap = false
+        if isOppositeColor
+            [prevBodyHigh, prevBodyLow] = body_high_low(prevIdx)
+            overlap = math.max(0.0, math.min(prevBodyHigh, legInHigh) - math.max(prevBodyLow, legInLow))
+            coverPct = overlap / legInRng
+            if coverPct >= rejectOppositeCoverPct
+                shouldRejectOverlap := true
+                
+        if shouldRejectOverlap
+            continue
+            
+        bullClv = (legInClose - legInLow) / legInRng
+        bearClv = (legInHigh - legInClose) / legInRng
+        
+        // ---------------- BASE ----------------
+        allBaseValid = true
+        maxBaseTR = 0.0
+        maxBaseHigh = -1.0
+        minBaseLow = 1000000000.0
+        hasOppositeColorBase = false
+        
+        for b = 1 to bCount
+            if na(atr_val[b])
+                allBaseValid := false
+                break
+                
+            bTR = tr(b)
+            if bTR > (maxBaseAtrMult * atr_val[b])
+                allBaseValid := false
+                break
+                
+            if bTR > maxBaseTR
+                maxBaseTR := bTR
+                
+            if high[b] > maxBaseHigh
+                maxBaseHigh := high[b]
+            if low[b] < minBaseLow
+                minBaseLow := low[b]
+                
+        if not allBaseValid or maxBaseTR == 0
+            continue
+            
+        // अपडेटेड नियम: यदि 1 base कैंडल है तो 1.5 मल्टीप्लायर, अन्यथा डिफ़ॉल्ट legInToBaseSizeMult
+        effectiveBaseSizeMult = (bCount == 1) ? 1.5 : legInToBaseSizeMult
+        if legInTR < (effectiveBaseSizeMult * maxBaseTR)
+            continue
+            
+        validLegIn = legInTR >= (legInMinAtrMult * atr_val[legInIdx])
+        if not validLegIn
+            continue
+            
+        // ---------------- LEG-OUT ----------------
+        legOutTR = tr(legOutIdx)
+        legOutHigh = high[legOutIdx]
+        legOutLow = low[legOutIdx]
+        legOutClose = close[legOutIdx]
+        legOutOpen = open[legOutIdx]
+        legOutVol = volume[legOutIdx]
+        
+        isDemandLegOut = is_bull(legOutIdx)
+        isSupplyLegOut = is_bear(legOutIdx)
+        
+        if not (isDemandLegOut or isSupplyLegOut)
+            continue
+            
+        isLegOutExplosive = legOutTR >= (legOutTrMult * atr_val[legOutIdx])
+        isLegOutWickValid = wick_pct(legOutIdx) <= maxWickPct
+        passesTRHierarchy = (legOutTR >= legOutMinTrRatio * legInTR) and (legInTR > maxBaseTR)
+        passesVolume = legOutVol > legInVol
+        
+        isOvernight = isOvernightGap()
+        
+        // ---------------- IMBALANCE & GAP ----------------
+        hasImbalance = true
+        hasGenuineGap = false
+        gapSize = 0.0
+        
+        if useImbalance
+            if isDemandLegOut
+                hasGenuineGap := legOutLow > maxBaseHigh
+                gapCond = hasGenuineGap or (legOutClose > legInHigh)
+                gapSize := math.max(0.0, legOutLow - maxBaseHigh)
+                hasImbalance := gapCond
+            else if isSupplyLegOut
+                hasGenuineGap := legOutHigh < minBaseLow
+                gapCond = hasGenuineGap or (legOutClose < legInLow)
+                gapSize := math.max(0.0, minBaseLow - legOutHigh)
+                hasImbalance := gapCond
+                
+        // ---------------- ENGULF CHECK ----------------
+        legOutBodyHigh = math.max(legOutOpen, legOutClose)
+        legOutBodyLow = math.min(legOutOpen, legOutClose)
+        legOutBodyEngulfsBase = (legOutBodyLow <= minBaseLow) and (legOutBodyHigh >= maxBaseHigh)
+        
+        if legOutBodyEngulfsBase and not hasGenuineGap
+            continue
+            
+        // ---------------- CLASSIFICATION ----------------
+        isRBR = legInIsBull and (bullClv >= minClvPct) and isDemandLegOut
+        isDBR = legInIsBear and (bearClv >= minClvPct) and isDemandLegOut
+        isDBD = legInIsBear and (bearClv >= minClvPct) and isSupplyLegOut
+        isRBD = legInIsBull and (bullClv >= minClvPct) and isSupplyLegOut
+        
+        isValid = (isRBR or isDBR or isDBD or isRBD) and isLegOutExplosive and isLegOutWickValid and passesTRHierarchy and passesVolume and hasImbalance
+        
+        if not isValid
+            continue
+            
+        // ---------------- SCORING ----------------
+        densityScore = 0
+        
+        if bCount == 1
+            densityScore += 15
+            
+        if legInTR >= (hqLegInAtrMult * atr_val[legInIdx])
+            densityScore += 10
+            
+        if legOutTR >= (hqLegOutTrMult * legInTR)
+            densityScore += 15
+            
+        if (legInTR >= 2.0 * maxBaseTR) and (legOutTR >= 2.0 * legInTR)
+            densityScore += 15
+            
+        if legOutVol > vol_sma[legOutIdx]
+            densityScore += 10
+            
+        if isDemandLegOut
+            legOutBodyPos = (legOutHigh - legOutLow) > 0 ? (legOutClose - legOutLow) / (legOutHigh - legOutLow) : 0
+            legOutOwnBodyPct = body_pct(legOutIdx)
+            if isDBR
+                if (legOutBodyPos >= 0.80) or (legOutOwnBodyPct >= legOutBodyHeavyPct)
+                    densityScore += 15
+            else
+                if legOutBodyPos >= 0.80
+                    densityScore += 15
+        else
+            legOutBodyPos = (legOutHigh - legOutLow) > 0 ? (legOutHigh - legOutClose) / (legOutHigh - legOutLow) : 0
+            if legOutBodyPos >= 0.80
+                densityScore += 15
+                
+        for b = 1 to bCount
+            if isDemandLegOut and is_bear(b)
+                hasOppositeColorBase := true
+                break
+            else if isSupplyLegOut and is_bull(b)
+                hasOppositeColorBase := true
+                break
+                
+        if hasOppositeColorBase
+            densityScore += 10
+            
+        densityScore += 10
+        
+        if hasGenuineGap
+            densityScore += genuineGapBonus
+        if isOvernight and hasGenuineGap
+            densityScore += overnightGapBonus
+            
+        if densityScore < minValidScore
+            continue
+            
+        isHQZone = densityScore >= hqScoreThreshold
+        zoneFoundOnThisBar = true
+        
+        // ---------------- ZONE LEVELS ----------------
+        proxVal = isDemandLegOut ? maxBaseHigh : minBaseLow
+        distVal = isDemandLegOut ? minBaseLow : maxBaseHigh
+        
+        slVal = isDemandLegOut ? (distVal - slBufferAtr * atr_val) : (distVal + slBufferAtr * atr_val)
+        riskPerShare = math.abs(proxVal - slVal)
+        tpVal = isDemandLegOut ? (proxVal + riskPerShare * targetRR) : (proxVal - riskPerShare * targetRR)
+        
+        legOutMidLevel = isDemandLegOut ? (legOutHigh - testedLegOutRetracePct * (legOutHigh - legOutLow)) : (legOutLow + testedLegOutRetracePct * (legOutHigh - legOutLow))
+        
+        // ---------------- DUPLICATE CHECK ----------------
+        isDuplicate = false
+        checked = 0
+        if array.size(active_zones) > 0
+            for i = array.size(active_zones) - 1 to 0
+                checkZ = array.get(active_zones, i)
+                if checkZ.state == "Broken"
+                    continue
+                if checkZ.isDemand == isDemandLegOut and math.abs(checkZ.proxVal - proxVal) < (atr_val * 0.25)
+                    isDuplicate := true
+                    break
+                checked += 1
+                if checked >= 11
+                    break
+                    
+        if isDuplicate
+            continue
+            
+        patternType = isRBR ? "RBR" : (isDBR ? "DBR" : (isDBD ? "DBD" : "RBD"))
+        zoneCat = (isRBR or isDBD) ? "Continuation" : "Reversal"
+        
+        // ---------------- DRAWING BOXES ON CHART ----------------
+        boxBorderColor = isDemandLegOut ? color.green : color.red
+        boxFillColor   = isDemandLegOut ? color.new(color.green, 85) : color.new(color.red, 85)
+        
+        zBox = box.new(left=bar_index - bCount - 1, top=proxVal, right=bar_index + 15, bottom=distVal, 
+                       border_color=boxBorderColor, bgcolor=boxFillColor, xloc=xloc.bar_index)
+        
+        newZone = Zone.new(
+             proxVal, distVal, slVal, tpVal, isDemandLegOut, isHQZone, densityScore,
+             patternType, zoneCat, "Fresh", 0, bar_index - bCount, bar_index, bCount,
+             legOutHigh, legOutLow, legOutMidLevel, isOvernight, legInTR, legOutTR, zBox
+             )
+             
+        array.push(active_zones, newZone)
+
+// ==============================================================================
+// 5. ZONE STATE TRACKING & BOX UPDATES
+// ==============================================================================
+if array.size(active_zones) > 0
+    lo_t = low
+    hi_t = high
+    
+    for i = array.size(active_zones) - 1 to 0
+        z = array.get(active_zones, i)
+        
+        if z.state == "Fresh"
+            if z.isDemand
+                if lo_t <= z.distVal
+                    z.state := "Broken"
+                else if lo_t <= z.legOutMidLevel
+                    z.state := "Tested"
+                    z.touchCount += 1
+            else
+                if hi_t >= z.distVal
+                    z.state := "Broken"
+                else if hi_t >= z.legOutMidLevel
+                    z.state := "Tested"
+                    z.touchCount += 1
+        else if z.state == "Tested"
+            if z.isDemand
+                if lo_t <= z.distVal
+                    z.state := "Broken"
+                else if lo_t <= z.legOutMidLevel
+                    z.touchCount += 1
+            else
+                if hi_t >= z.distVal
+                    z.state := "Broken"
+                else if hi_t >= z.legOutMidLevel
+                    z.touchCount += 1
+                    
+        if z.state == "Tested" and z.touchCount > maxTestedCount
+            z.state := "Broken"
+            
+        if z.state == "Broken"
+            box.set_bgcolor(z.zoneBox, color.new(color.gray, 95))
+            box.set_border_color(z.zoneBox, color.new(color.gray, 80))
+        else
+            box.set_right(z.zoneBox, bar_index + 15)
+
+// ==============================================================================
+// 6. OUTPUT SAFETY PLOT
+// ==============================================================================
+plot(close, "Close Price", display=display.none)

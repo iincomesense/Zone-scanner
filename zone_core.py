@@ -17,7 +17,42 @@ custom values pass करें, वरना यहाँ दिए गए Pine
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
+
+
+# Pine Section 1 inputs.  Keep this mapping as the single source of truth for
+# callers that want to use the same defaults as the TradingView indicator.
+PINE_DEFAULTS: Dict[str, Any] = {
+    "accountCapital": 25000.0,
+    "riskPct": 0.5,
+    "targetRR": 5.0,
+    "slBufferAtr": 0.1,
+    "atrPeriod": 14,
+    "volSmaPeriod": 20,
+    "legOutTrMult": 1.2,
+    "legOutMinTrRatio": 1.0,
+    "hqLegOutTrMult": 2.0,
+    "hqLegInAtrMult": 1.5,
+    "maxBaseAtrMult": 1.0,
+    "maxWickPct": 0.30,
+    "minBaseCountInput": 1,
+    "maxBaseCountInput": 3,
+    "legInMinAtrMult": 1.0,
+    "minClvPct": 0.60,
+    "legInToBaseSizeMult": 2.0,
+    "legInMinBodyPct": 0.60,
+    "useImbalance": True,
+    "maxImbalanceMult": 1.0,
+    "relaxGapCapOvernight": True,
+    "genuineGapBonus": 10,
+    "overnightGapBonus": 15,
+    "rejectOppositeCoverPct": 0.50,
+    "minValidScore": 40,
+    "hqScoreThreshold": 90,
+    "legOutBodyHeavyPct": 0.60,
+    "testedLegOutRetracePct": 0.50,
+    "maxTestedCount": 2,
+}
 
 
 # ==============================================================================
@@ -65,6 +100,18 @@ class Zone:
     legInTR: float
     legOutTR: float
     zoneBox: Box
+    # Derived display/backtest fields. These do not participate in the Pine
+    # acceptance rules; they keep the Streamlit adapter read-only and safe.
+    timestamp: object = None
+    riskPct: float = float("nan")
+    score10: float = float("nan")
+    baseColourOK: bool = False
+    legInVolX: float = float("nan")
+    legOutVolX: float = float("nan")
+    retestVolX: float = float("nan")
+    entryStatus: str = ""
+    entryPrice: float = 0.0
+    gapToLegIn: float = 0.0
 
 
 class ZoneEngine:
@@ -522,6 +569,17 @@ class ZoneEngine:
                 baseCount=bCount, legOutHigh=legOutHigh, legOutLow=legOutLow,
                 legOutMidLevel=legOutMidLevel, isOvernight=isOvernight,
                 legInTR=legInTR, legOutTR=legOutTR, zoneBox=zBox,
+                timestamp=self.df.index[i],
+                riskPct=(riskPerShare / proxVal * 100.0) if proxVal else float("nan"),
+                score10=densityScore / 10.0,
+                baseColourOK=hasOppositeColorBase,
+                legInVolX=(legInVol / self.vol_sma[pos_legIn]
+                           if self.vol_sma[pos_legIn] and not np.isnan(self.vol_sma[pos_legIn])
+                           else float("nan")),
+                legOutVolX=(legOutVol / self.vol_sma[pos_legOut]
+                            if self.vol_sma[pos_legOut] and not np.isnan(self.vol_sma[pos_legOut])
+                            else float("nan")),
+                gapToLegIn=gapSize,
             )
 
             self.active_zones.append(newZone)
@@ -582,6 +640,124 @@ class ZoneEngine:
             self._update_zone_states(i)
 
         return self.active_zones
+
+
+# ==============================================================================
+# PUBLIC SCANNER API
+# ==============================================================================
+def settings(**overrides) -> Dict[str, Any]:
+    """Return the Pine v6 input values used by :class:`ZoneEngine`.
+
+    ``overrides`` uses the exact input names from the script, for example
+    ``settings(legInMinBodyPct=0.55, maxTestedCount=1)``.  Unknown keys are
+    retained so higher-level callers can carry their own display-only options;
+    ``scan_zones`` filters those before constructing the engine.
+    """
+    result = dict(PINE_DEFAULTS)
+    result.update(overrides)
+    return result
+
+
+def scan_zones(df: pd.DataFrame, params: Optional[Dict[str, Any]] = None) -> List[Zone]:
+    """Scan OHLCV data with the Pine v6 rules and return the final zone list.
+
+    The scan itself is performed only by ``ZoneEngine``.  Parameters not
+    present in the Pine input section are ignored here; this keeps callers
+    from accidentally adding a second, Python-only acceptance rule.
+    """
+    config = settings(**(params or {}))
+    engine_config = {key: value for key, value in config.items()
+                     if key in PINE_DEFAULTS}
+    return ZoneEngine(df, **engine_config).run()
+
+
+def recommended_trade_setup() -> Dict[str, Any]:
+    """Return the dashboard's recommendation filter without changing the scan."""
+    return {
+        "patterns": ["RBR", "DBR", "DBD", "RBD"],
+        "targetRR": PINE_DEFAULTS["targetRR"],
+        "risk_pct": PINE_DEFAULTS["riskPct"],
+        "capital": PINE_DEFAULTS["accountCapital"],
+        "slBufferAtr": PINE_DEFAULTS["slBufferAtr"],
+        "entry_mode": "prox",
+    }
+
+
+def backtest_summary(zones: List[Zone], df: pd.DataFrame) -> Dict[str, Any]:
+    """Return a small, non-invasive summary for the optional dashboard panel."""
+    active = [z for z in zones if z.state in ("Fresh", "Tested")]
+    return {
+        "n_zones": len(zones),
+        "n_active": len(active),
+        "n_broken": sum(z.state == "Broken" for z in zones),
+        "avg_score": (sum(z.densityScore for z in zones) / len(zones)
+                      if zones else 0.0),
+    }
+
+
+def realistic_roi(
+    zones: List[Zone],
+    df: pd.DataFrame,
+    rr: float = 5.0,
+    risk_pct: float = 0.5,
+    capital: float = 25000.0,
+    patterns: Optional[List[str]] = None,
+    buffer: float = 0.1,
+    entry_mode: str = "prox",
+    max_hold: int = 40,
+) -> Dict[str, Any]:
+    """Provide a conservative summary for the legacy dashboard ROI panel.
+
+    The Pine indicator does not define a backtest engine, so this helper does
+    not invent trades or alter zone validity. It reports the available sample
+    and leaves trade statistics empty.
+    """
+    selected = [z for z in zones if not patterns or z.patternType in patterns]
+    return {
+        "n_trades": 0,
+        "win_pct": 0.0,
+        "net_roi_pct": 0.0,
+        "sample_zones": len(selected),
+        "risk_pct": risk_pct,
+        "capital": capital,
+        "targetRR": rr,
+    }
+
+
+def target_context(
+    zone: Zone,
+    df: Optional[pd.DataFrame] = None,
+    htf_df: Optional[pd.DataFrame] = None,
+    market_df: Optional[pd.DataFrame] = None,
+    vix: Optional[float] = None,
+    spx_ret20: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Return optional context fields used only to annotate dashboard rows."""
+    return {
+        "score": None,
+        "max": 6,
+        "label": "—",
+        "why": [],
+        "A": None,
+        "B": None,
+        "C": None,
+        "D": None,
+        "E": None,
+        "F": None,
+    }
+
+
+def latest_active_zones(zones: List[Zone]) -> List[Zone]:
+    """Return zones that are not broken, preserving scan order."""
+    return [z for z in zones if z.state in ("Fresh", "Tested")]
+
+
+def get_zone_alerts(zones: List[Zone], price: float) -> List[Zone]:
+    """Return active zones whose price range currently contains the quote."""
+    return [
+        z for z in latest_active_zones(zones)
+        if min(z.proxVal, z.distVal) <= price <= max(z.proxVal, z.distVal)
+    ]
 
 
 # ==============================================================================

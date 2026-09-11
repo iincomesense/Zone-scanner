@@ -31,6 +31,7 @@ Thumbs.db
 # Data files (keep CSVs out of git)
 *.csv
 data/
+.universe_cache.json
 
 # Secrets
 .env
