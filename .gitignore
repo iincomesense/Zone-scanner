@@ -1,20 +1,36 @@
+
+---
+
+## File 4: `.gitignore`
+
+```gitignore
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
 venv/
+env/
+.venv/
 
-# Auto-generated market cap files (ये rozana change hoti hain)
-symbols/nifty_fo_45000cr.txt
-symbols/fo_market_cap_report.csv
-symbols/*_cr.txt
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# लेकिन base list जरूर track हो (override)
-!symbols/all_nse_fo_stocks.txt
+# OS
+.DS_Store
+Thumbs.db
 
-# Live scan history
-live_scan_history/*.csv
+# Data files (keep CSVs out of git)
+*.csv
+data/
 
-# Sensitive
-config/settings.py
+# Secrets
 .env
-credentials.json
