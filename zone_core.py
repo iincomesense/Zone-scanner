@@ -3,14 +3,18 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+# सेटिंग्स वापस डिफ़ॉल्ट पर हैं, क्योंकि अब लॉजिक स्मार्ट हो गया है।
 PINE_DEFAULTS: Dict[str, Any] = {
     "accountCapital": 25000.0, "riskPct": 0.5, "targetRR": 5.0, "slBufferAtr": 0.1,
-    "atrPeriod": 14, "volSmaPeriod": 20, "legOutTrMult": 1.2, "legOutMinTrRatio": 1.0,
+    "atrPeriod": 14, "volSmaPeriod": 20, 
+    "legOutTrMult": 1.2,       # अब यह ATR के बजाय Leg-In TR से 1.2 गुना चेक करेगा
+    "legOutMinTrRatio": 1.0,
     "hqLegOutTrMult": 2.0, "hqLegInAtrMult": 1.5, "maxBaseAtrMult": 1.0, "maxWickPct": 0.30,
     "minBaseCountInput": 1, "maxBaseCountInput": 3, "legInMinAtrMult": 1.0,
     "minClvPct": 0.60, "legInToBaseSizeMult": 2.0, "legInMinBodyPct": 0.55,
     "useImbalance": True, "maxImbalanceMult": 1.0, "relaxGapCapOvernight": True,
-    "genuineGapBonus": 10, "overnightGapBonus": 15, "rejectOppositeCoverPct": 0.50,
+    "genuineGapBonus": 10, "overnightGapBonus": 15, 
+    "rejectOppositeCoverPct": 0.50, # Doji शर्त के साथ 50% कवर नियम
     "minValidScore": 40, "hqScoreThreshold": 90, "legOutBodyHeavyPct": 0.60,
     "testedLegOutRetracePct": 0.90, "maxTestedCount": 2,
 }
@@ -116,10 +120,17 @@ class ZoneEngine:
             pos_prev = i - prevIdx
             if pos_prev < 0: continue
 
+            # ---------------- सुधार 1: Doji होने पर ओवरलैप (Cover) इग्नोर करें ----------------
             if (legInIsBull and self._is_bear(i, prevIdx)) or (legInIsBear and self._is_bull(i, prevIdx)):
+                prevBodyPct = self._body_pct(i, prevIdx)
+                isPrevDoji = prevBodyPct <= 0.25  # यदि बॉडी 25% या कम है, तो यह Doji (Indecision) है
+                
                 prevBodyHigh, prevBodyLow = self._body_high_low(i, prevIdx)
                 overlap = max(0.0, min(prevBodyHigh, legInHigh) - max(prevBodyLow, legInLow))
-                if overlap / legInRng >= self.rejectOppositeCoverPct: continue
+                
+                # यदि कैंडल Doji नहीं है, तभी ओवरलैप 50% से अधिक होने पर रिजेक्ट करें
+                if not isPrevDoji and (overlap / legInRng >= self.rejectOppositeCoverPct): 
+                    continue
 
             bullClv, bearClv = (legInClose - legInLow) / legInRng, (legInHigh - legInClose) / legInRng
 
@@ -145,7 +156,9 @@ class ZoneEngine:
 
             if not (isDemandLegOut or isSupplyLegOut): continue
 
-            isLegOutExplosive = legOutTR >= (self.legOutTrMult * self.atr_val[pos_legOut])
+            # ---------------- सुधार 2: ATR के बजाय Leg-In कैंडल के TR से 1.2 गुना चेक ----------------
+            isLegOutExplosive = legOutTR >= (self.legOutTrMult * legInTR)
+            
             isLegOutWickValid = self._wick_pct(i, legOutIdx) <= self.maxWickPct
             passesTRHierarchy = (legOutTR >= self.legOutMinTrRatio * legInTR) and (legInTR > maxBaseTR)
             
