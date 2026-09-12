@@ -11,10 +11,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-# ऐप की डिफ़ॉल्ट कॉन्फ़िगरेशन
 st.set_page_config(page_title="MarketHub · Zone Scanner", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 
-# Session state फॉर लाइव नोटिफिकेशन्स
 if 'last_news_title' not in st.session_state:
     st.session_state.last_news_title = ""
 
@@ -26,69 +24,66 @@ st.markdown("""
 [data-testid="stSidebar"] *{color:var(--txt);}
 [data-testid="stHeader"]{background:rgba(11,18,32,.35);}
 [data-baseweb="select"] *{background-color:#121a2b; color:#e6edf7;}
-[data-testid="stExpander"]{background-color:#121a2b;}
-[data-testid="stExpander"] *{color:#e6edf7;}
+
+/* Tabs Styling for Mobile/Tablet */
+.stTabs [data-baseweb="tab-list"] { gap: 8px; background-color: #0d1524; padding: 10px; border-radius: 12px; }
+.stTabs [data-baseweb="tab"] { background-color: #162238; border-radius: 8px; padding: 10px 16px; color: #8ba1c0; font-weight: 600; }
+.stTabs [aria-selected="true"] { background-color: #4f8cff !important; color: #ffffff !important; }
+
+/* Desktop Tables */
 .board-table{width:100%; border-collapse:collapse; font-size:10.5px;}
-.board-table th{text-align:left; color:var(--muted); font-size:9.5px; text-transform:uppercase; letter-spacing:.3px; padding:3px 6px; border-bottom:1px solid var(--line); white-space:nowrap;}
+.board-table th{text-align:left; color:var(--muted); font-size:9.5px; text-transform:uppercase; padding:3px 6px; border-bottom:1px solid var(--line); white-space:nowrap;}
 .board-table td{padding:2.5px 6px; border-bottom:1px solid #161f33; color:#d9e5f6; font-variant-numeric:tabular-nums; white-space:nowrap;}
-.board-table tr:hover{background:#121a2c;}
 .board-table a.sym{font-weight:700; color:#eaf1fb; text-decoration:none;}
 .board-table a.sym:hover{color:var(--accent2); text-decoration:underline;}
-.board-table td.nm{color:#8ba1c0; font-size:9.5px;}
-.board-table .grp td{background:#0e1626; color:var(--accent2); font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:1px; padding:3px 6px;}
-.board-table .src{color:#5a6c8a; font-size:8.5px;}
-.board-table td.tv{color:var(--accent2); font-weight:700; font-size:11px;}
+.board-table .grp td{background:#0e1626; color:var(--accent2); font-size:9px; font-weight:800; text-transform:uppercase; padding:3px 6px;}
+
 .phead{display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap;}
 .phead .t{font-size:15px; font-weight:800; color:#eaf1fb;}
 .phead .s{font-size:10.5px; color:var(--muted);}
 .up{color:var(--up);} .dn{color:var(--down);} .flat{color:var(--muted);}
+
 .sumbar{display:flex; gap:8px; flex-wrap:wrap; background:#0e1626; border:1px solid var(--line); border-radius:12px; padding:8px 12px; margin:8px 0; font-size:12.5px;}
-.sumbar .it{color:#cfe0ff; font-variant-numeric:tabular-nums;}
-.sumbar .it b{color:#eaf1fb;}
-.sumbar .sep{color:var(--muted);}
-.sumbar .lbl{color:var(--muted); font-size:10.5px;}
-.zwrap{overflow:auto; max-height:560px; border:1px solid var(--line); border-radius:12px; background:#0e1626; scrollbar-width:thin;}
+.sumbar .it{color:#cfe0ff;} .sumbar b{color:#eaf1fb;} .sumbar .lbl{color:var(--muted); font-size:10.5px;}
+
+.zwrap{overflow:auto; max-height:600px; border:1px solid var(--line); border-radius:12px; background:#0e1626; scrollbar-width:thin;}
 .zhin{width:100%; border-collapse:collapse; font-size:12px; min-width:800px;}
-.zhin thead th{position:sticky; top:0; z-index:3; text-align:left; color:var(--muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; padding:7px 8px; border-bottom:1px solid var(--line); background:#0c1422; white-space:nowrap;}
-.zhin td{padding:6px 8px; border-bottom:1px solid #18233a; color:#d9e5f6; font-variant-numeric:tabular-nums; white-space:nowrap;}
-.zhin tr.near:hover{background:#13233a;}
-.zhin td.near-up{color:var(--up);}
-.zhin .zm{font-size:10px; color:var(--muted);}
+.zhin thead th{position:sticky; top:0; z-index:3; text-align:left; color:var(--muted); font-size:10.5px; text-transform:uppercase; padding:7px 8px; border-bottom:1px solid var(--line); background:#0c1422; white-space:nowrap;}
+.zhin td{padding:6px 8px; border-bottom:1px solid #18233a; color:#d9e5f6; white-space:nowrap;}
 .zhin tr:hover{background:#131d31;}
-.zhin a{color:var(--accent2); text-decoration:none; font-weight:600;}
-.zhin a.sym{color:#eaf1fb; font-weight:700;}
+.zhin a.sym{color:#eaf1fb; font-weight:700; text-decoration:none;}
 .zhin a.sym:hover{color:var(--accent2); text-decoration:underline;}
-.zhin .dot{font-size:9px; vertical-align:middle;}
 .dot.dem{color:var(--up);} .dot.sup{color:var(--down);}
 .zhin .hq{color:#f5c542;}
-.zhin .st-fresh{color:var(--up);} .zhin .st-tested{color:var(--accent2);} .zhin .st-broken{color:var(--muted);}
+.st-fresh{color:var(--up);} .st-tested{color:var(--accent2);} .st-broken{color:var(--muted);}
 .zscore{font-size:11px; padding:1px 7px; border-radius:12px; border:1px solid var(--line);}
 .zscore.hi{color:var(--up); border-color:rgba(30,203,107,.4);}
 .zscore.md{color:var(--accent2); border-color:rgba(34,211,238,.4);}
 .zscore.lo{color:var(--muted);}
+
+/* Mobile UI Cards Conversion */
+@media (max-width: 768px) {
+    .zhin thead { display: none; }
+    .zhin, .zhin tbody, .zhin tr, .zhin td { display: block; width: 100%; min-width:100%; }
+    .zhin tr { background: #0e1626; margin-bottom: 12px; border-radius: 12px; border: 1px solid #22304a; padding: 10px; }
+    .zhin td { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #18233a; padding: 8px 4px; text-align:right;}
+    .zhin td::before { content: attr(data-label); color: #8ba1c0; font-weight: 600; text-transform:uppercase; font-size:10px; text-align:left;}
+    .zhin td:last-child { border-bottom: 0; }
+}
+
 .fdbx{background:#0e1626; border:1px solid var(--line); border-radius:10px; padding:8px 10px;}
-.fdbx .lab{font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px;}
-.fdbx .val{font-size:19px; font-weight:800; font-variant-numeric:tabular-nums;}
-.fdbx .sub{font-size:10px; color:var(--muted);}
-.fdrow{display:flex; gap:12px; flex-wrap:wrap;}
-.fdrow .fdbx{flex:1 1 120px;}
+.fdbx .lab{font-size:10px; color:var(--muted); text-transform:uppercase;}
+.fdbx .val{font-size:19px; font-weight:800;}
+.fdrow{display:flex; gap:12px; flex-wrap:wrap;} .fdrow .fdbx{flex:1 1 120px;}
+
 .news-item{display:flex; gap:9px; padding:7px 4px; border-bottom:1px solid #18233a;}
-.news-item:hover{background:#131d31;}
 .news-time{color:var(--muted); font-size:11px; width:44px; flex:0 0 44px;}
-.news-body{flex:1; min-width:0;}
 .news-title{color:#dbeeef; font-size:13px; font-weight:600; text-decoration:none;}
-.news-body a{text-decoration:none; word-break:break-word;}
 .news-src{color:var(--muted); font-size:10px;}
 .livebox{display:flex; gap:10px; align-items:center; background:linear-gradient(90deg,#12233f,#0e1626); border:1px solid rgba(255,75,92,.35); border-radius:12px; padding:8px 11px; margin:4px 0 10px;}
-.livebox .pulse{display:inline-block; width:9px; height:9px; border-radius:50%; background:#ff4b5c; box-shadow:0 0 0 0 rgba(255,75,92,.7); animation:pulse 1.6s infinite;}
+.pulse{display:inline-block; width:9px; height:9px; border-radius:50%; background:#ff4b5c; box-shadow:0 0 0 0 rgba(255,75,92,.7); animation:pulse 1.6s infinite;}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,75,92,.7);} 70%{box-shadow:0 0 0 8px rgba(255,75,92,0);} 100%{box-shadow:0 0 0 0 rgba(255,75,92,0);}}
-.livebox .lbt{font-size:9.5px; letter-spacing:1px; color:#ff8b96; font-weight:800; white-space:nowrap;}
-.livebox .lbtitle{font-size:12.5px; font-weight:600; color:#f2f6ff; line-height:1.35;}
-.livebox a{color:inherit; text-decoration:none;}
-.livebox a:hover{color:var(--accent2);}
 .chip{font-size:11px; background:#152036; border:1px solid var(--line); color:#cfe0ff; border-radius:20px; padding:2px 9px; display:inline-block;}
-.chip.t{background:#1a2740; color:var(--accent2);}
-.chips{display:flex; gap:6px; flex-wrap:wrap; margin:3px 0;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -96,23 +91,17 @@ st.markdown("""
 def _hi(text):
     if not text or not str(text).strip(): return str(text)
     try:
-        r = requests.get("https://translate.googleapis.com/translate_a/single",
-                         params={"client": "gtx", "sl": "auto", "tl": "hi", "dt": "t", "q": str(text)},
-                         timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-        if r.status_code == 200:
-            out = "".join(x[0] for x in r.json()[0]).strip()
-            if out: return out
+        r = requests.get("https://translate.googleapis.com/translate_a/single", params={"client": "gtx", "sl": "auto", "tl": "hi", "dt": "t", "q": str(text)}, timeout=5)
+        if r.status_code == 200: return "".join(x[0] for x in r.json()[0]).strip()
     except Exception: pass
     return str(text)
 
 LIVE_TFS = ["10m", "15m", "30m", "75m", "1h", "2h", "4h"]
 STABLE_TFS = ["6h", "8h", "1D", "1W", "1M"]
-TF_LABEL = {"10m": "10 Min", "15m": "15 Min", "30m": "30 Min", "75m": "75 Min", "1h": "1 Hour", "2h": "2 Hours", "4h": "4 Hours", "6h": "6 Hours", "8h": "8 Hours", "1D": "Daily", "1W": "Weekly", "1M": "Monthly"}
-
+TF_LABEL = {"10m": "10 Min", "15m": "15 Min", "1h": "1 Hour", "2h": "2 Hours", "4h": "4 Hours", "1D": "Daily", "1W": "Weekly", "1M": "Monthly"}
 def _tf_hi(tf): return TF_LABEL.get(str(tf), str(tf))
 def _score_cls(sc): return "hi" if sc >= 90 else ("md" if sc >= 60 else "lo")
 
-# ------ क्रैश प्रूफ डेटा लोडिंग (Crash-Proof Data Loading) ------
 @st.cache_data(ttl=30, show_spinner=False)
 def load_market():
     try: import marketdata as md; return md.fetch_all()
@@ -123,31 +112,25 @@ def load_sectors():
     try: import sectors as sc; return sc.fetch_sectors()
     except ImportError: return []
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def load_news():
-    try: import news as n; return n.fetch_latest(20)
+    try: import news as n; return n.fetch_latest(15)
     except ImportError: return []
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_events():
-    try: import events as e; return e.fetch_events(16)
-    except ImportError: return [] # <-- एरर यहीं से आ रहा था, अब यह ऐप क्रैश नहीं करेगा
+    try: import events as e; return e.fetch_events(10)
+    except ImportError: return []
 
 @st.cache_data(ttl=90, show_spinner=False)
 def load_fiidii():
-    try: import fiidii as f; return f.fetch(6), f.monthly()
-    except ImportError: return [], {}
-
-@st.cache_data(ttl=60, show_spinner=False)
-def load_options(symbol):
-    try: import options as o; return o.live_oi(symbol), o.top_strikes(symbol, n=7), o.deep_links(symbol)
-    except ImportError: return None, [], []
+    try: import fiidii as f; return f.fetch(6)
+    except ImportError: return []
 
 @st.cache_data(ttl=30, show_spinner=False)
 def load_scan(symbol, timeframe, min_score, strict, lookback, recommended):
     try: import zscan; return zscan.scan(symbol, timeframe, min_score=min_score, strict=strict, lookback_months=lookback, recommended=recommended)
     except ImportError: return [], None, None
-# ----------------------------------------------------------------
 
 def _day_key(): return datetime.datetime.now().strftime("%Y-%m-%d")
 
@@ -161,28 +144,10 @@ def load_universe_stable(tf_tuple, min_score, recommended, strict, eod_filter, s
     try: import zscan; return zscan.scan_universe_zones(timeframes=tf_tuple, min_score=min_score, recommended=recommended, strict=strict, active_only=False, eod_filter=eod_filter, symbols=list(symbols_tuple) if symbols_tuple else None)
     except ImportError: return []
 
-def fmt_cr(x):
-    if x is None: return "—"
-    x = float(x)
-    cls = "up" if x > 0 else ("dn" if x < 0 else "flat")
-    return f'<span class="{cls}">{x:+,.0f}</span>'
-
 def _chg_html(c):
     if c is None: return '<span class="flat">—</span>'
     cls = "up" if c > 0 else ("dn" if c < 0 else "flat")
-    sign = "+" if c > 0 else ("−" if c < 0 else "")
-    return f'<span class="{cls}">{sign}{c:.2f}%</span>'
-
-def auto_refresh(seconds, key):
-    try:
-        import streamlit as _st
-        _st.caption(f"⟳ Auto-refresh every {int(seconds)//60}m · going live")
-    except Exception: pass
-    if st.button("⟳ Refresh now", key=f"refresh_{key}"): st.rerun()
-
-GRP_EN = {"dollar": "💵 Currencies", "rates": "🏛️ Rates & Bonds", "commodities": "🥇 Metals & Energy", "indices": "📈 Global Indices"}
-_BOARD_TV = {"DXY": "TVC:DXY", "USDINR": "FX_IDC:USDINR", "TLT": "AMEX:TLT", "US 10Y": "TVC:US10Y", "XAUUSD": "OANDA:XAUUSD", "XAGUSD": "OANDA:XAGUSD", "SPOTCRUDE": "TVC:USOIL", "GIFT NIFTY": "NSEIX:NIFTY1!", "NIFTY 50": "NSE:NIFTY", "US30": "TVC:DJI", "US500": "TVC:SPX", "JP225": "TVC:NI225", "SSE": "SSE:000001"}
-_SECTOR_TV = {"NIFTY AUTO": "NSE:NIFTY_AUTO", "NIFTY IT": "NSE:CNXIT", "NIFTY PHARMA": "NSE:NIFTY_PHARMA", "NIFTY FMCG": "NSE:NIFTY_FMCG", "NIFTY METAL": "NSE:NIFTY_METAL", "NIFTY ENERGY": "NSE:NIFTY_ENERGY", "NIFTY REALTY": "NSE:NIFTY_REALTY", "NIFTY MEDIA": "NSE:NIFTY_MEDIA", "NIFTY PSU BANK": "NSE:NIFTY_PSU_BANK", "NIFTY INFRA": "NSE:NIFTY_INFRA", "NIFTY FINANCIAL SERVICES": "NSE:NIFTY_FIN", "NIFTY BANK": "NSE:BANKNIFTY", "NIFTY 50": "NSE:NIFTY"}
+    return f'<span class="{cls}">{"+" if c > 0 else ""}{c:.2f}%</span>'
 
 def _tv_chart_url(tv_sym, interval="1D"): return f'https://www.tradingview.com/chart/?symbol={quote(str(tv_sym))}&interval={interval}'
 
@@ -191,14 +156,13 @@ def render_board():
     if not data: return
     try:
         import marketdata as md
-        st.markdown('<div class="phead"><span class="t">🌍 Live Market Board <span style="color:#1ecb6b;font-size:11px;">● LIVE</span></span><span class="s">auto-refresh 30s · tap a symbol to open chart</span></div>', unsafe_allow_html=True)
         html = ['<table class="board-table"><thead><tr><th>Symbol</th><th>Last</th><th>Chg%</th><th>Chart</th></tr></thead><tbody>']
         for grp, tiles in md.TILES:
-            html.append(f'<tr class="grp"><td colspan="4">{GRP_EN.get(grp, grp)}</td></tr>')
+            html.append(f'<tr class="grp"><td colspan="4">{grp.upper()}</td></tr>')
             for t in tiles:
                 q = data.get(t["label"], {})
                 px = f"{q['price']:,.2f}" if q.get("price") is not None else "—"
-                tv_sym = md.tv_chart_symbol(t["label"]) if hasattr(md, "tv_chart_symbol") else _BOARD_TV.get(t["label"], t["label"])
+                tv_sym = md.tv_chart_symbol(t["label"]) if hasattr(md, "tv_chart_symbol") else t["label"]
                 _tv_url = _tv_chart_url(tv_sym)
                 html.append(f'<tr><td><a class="sym" href="{_tv_url}" target="_blank">📈 {t["label"]}</a></td><td>{px}</td><td>{_chg_html(q.get("chg_pct"))}</td><td class="tv"><a href="{_tv_url}" target="_blank">➜</a></td></tr>')
         html.append('</tbody></table>')
@@ -208,43 +172,13 @@ def render_board():
 def render_sectors():
     sec = load_sectors()
     if not sec: return
-    st.markdown('<div class="phead"><span class="t">🧱 Live Sector Indices <span style="color:#1ecb6b;font-size:11px;">● LIVE</span></span><span class="s">NSE · 30s · tap an index to open chart</span></div>', unsafe_allow_html=True)
     html = ['<table class="board-table"><thead><tr><th>Index</th><th>Last</th><th>Chg%</th><th>Chart</th></tr></thead><tbody>']
     for s in sec:
         cls, sign = ("up", "+") if s["chg_pct"] >= 0 else ("dn", "−")
-        try:
-            import sectors as sc
-            tv_sym = sc.tv_chart_symbol(s.get("full", s["label"])) if hasattr(sc, "tv_chart_symbol") else _SECTOR_TV.get(s.get("full", s["label"]), s["label"])
-        except ImportError:
-            tv_sym = _SECTOR_TV.get(s.get("full", s["label"]), s["label"])
-        _tv_url = _tv_chart_url(tv_sym)
+        _tv_url = _tv_chart_url(s.get("label"))
         html.append(f'<tr><td><a class="sym" href="{_tv_url}" target="_blank">📈 {s["label"]}</a></td><td>{s["price"]:,.1f}</td><td class="{cls}">{sign}{s["chg_pct"]:.2f}%</td><td class="tv"><a href="{_tv_url}" target="_blank">➜</a></td></tr>')
     html.append('</tbody></table>')
     st.markdown("".join(html), unsafe_allow_html=True)
-
-def render_fiidii():
-    st.markdown('<div class="phead"><span class="t">🏛️ FII / DII (Today)</span><span class="s">live · 90s</span></div>', unsafe_allow_html=True)
-    try: days, _ = load_fiidii()
-    except Exception: days = []
-    if not days:
-        st.caption("FII/DII data not reachable right now.")
-        return
-    today = days[0]
-    dome = today.get("date", "")
-    dome = dome.strftime("%d-%b") if hasattr(dome, "strftime") else str(dome)
-    st.markdown(f'<div class="fdrow"><div class="fdbx"><div class="lab">FII / FPI {dome}</div><div class="val">{fmt_cr(today.get("fii_net"))}</div><div class="sub">Buy {today.get("fii_buy","—")} · Sell {today.get("fii_sell","—")} Cr</div></div><div class="fdbx"><div class="lab">DII {dome}</div><div class="val">{fmt_cr(today.get("dii_net"))}</div><div class="sub">Buy {today.get("dii_buy","—")} · Sell {today.get("dii_sell","—")} Cr</div></div><div class="fdbx"><div class="lab">NIFTY 50</div><div class="val">{today.get("nifty","—")}</div><div class="sub">chg {fmt_cr(today.get("chg",""))} pts</div></div></div>', unsafe_allow_html=True)
-
-def render_options(symbol):
-    live, strikes, links = load_options(symbol)
-    st.markdown(f'<div class="phead"><span class="t">🎯 Options OI</span><span class="s">{symbol.upper()}</span></div>', unsafe_allow_html=True)
-    if live:
-        st.markdown(f'<div class="fdrow"><div class="fdbx"><div class="lab">CALL OI</div><div class="val">{live["call_oi"]:,.0f}</div></div><div class="fdbx"><div class="lab">PUT OI</div><div class="val">{live["put_oi"]:,.0f}</div></div><div class="fdbx"><div class="lab">PCR</div><div class="val">{live["pcr"]:.2f}</div></div></div>', unsafe_allow_html=True)
-    li = "".join(f'<a class="chip" href="{l["url"]}" target="_blank">↗ {l["label"]}</a>' for l in links)
-    st.markdown(f'<div class="chips">{li}</div>', unsafe_allow_html=True)
-
-def zone_table_heading(rows, lookback_hi="All", scan_time=None):
-    now = (scan_time or datetime.datetime.now()).strftime("%d-%b %H:%M:%S")
-    return f'<div class="sumbar"><span class="it"><span class="lbl">Last scan ⟳</span> <b>{now}</b></span><span class="sep">|</span><span class="it"><b>{len(rows)}</b> <span class="lbl">Zones</span></span><span class="sep">|</span><span class="it"><b>{sum(1 for r in rows if r["state"]=="Fresh")}</b> <span class="lbl">Fresh</span></span><span class="sep">|</span><span class="it"><b>{sum(1 for r in rows if r["state"]=="Tested")}</b> <span class="lbl">Tested</span></span><span class="sep">|</span><span class="it"><span style="color:#f5c542;">⭐ {sum(1 for r in rows if r["hq"])}</span> <span class="lbl">HQ</span></span><span class="sep">|</span><span class="it"><span class="lbl">Lookback</span> {lookback_hi}</span></div>'
 
 def _fmt2(v): return "—" if v is None else f"{float(v):,.2f}"
 
@@ -255,178 +189,133 @@ def _status_badge(es):
     if es.startswith("Failed"): return f'<span style="color:#f87171;">✖ {es.replace("Failed-", "")}</span>'
     return es or "—"
 
-def render_zone_table(rows, title, subtitle, lookback_hi="All", scan_time=None):
-    st.markdown(f'<div class="phead"><span class="t">{title}</span><span class="s">{subtitle}</span></div>', unsafe_allow_html=True)
+def render_zone_table(rows, scan_time=None):
     if not rows: return st.info("No valid zones found.")
-    st.markdown(zone_table_heading(rows, lookback_hi, scan_time), unsafe_allow_html=True)
+    now = (scan_time or datetime.datetime.now()).strftime("%d-%b %H:%M")
+    st.markdown(f'<div class="sumbar"><span class="it"><span class="lbl">Scan ⟳</span> <b>{now}</b></span><span class="sep">|</span><span class="it"><b>{len(rows)}</b> <span class="lbl">Zones</span></span><span class="sep">|</span><span class="it"><b>{sum(1 for r in rows if r["state"]=="Fresh")}</b> <span class="lbl">Fresh</span></span><span class="sep">|</span><span class="it"><span style="color:#f5c542;">⭐ {sum(1 for r in rows if r["hq"])}</span> <span class="lbl">HQ</span></span></div>', unsafe_allow_html=True)
     
-    html = ['<div class="zwrap"><table class="zhin"><thead><tr><th>Asset</th><th>Timeframe</th><th>Direction</th><th>Pattern</th><th>State</th><th>HQ</th><th>Score</th><th>Entry</th><th>Distal</th><th>SL</th><th>Risk %</th><th>Status</th></tr></thead><tbody>']
+    html = ['<div class="zwrap"><table class="zhin"><thead><tr><th>Asset</th><th>TF</th><th>Direction</th><th>Pattern</th><th>State</th><th>HQ</th><th>Score</th><th>Entry</th><th>Distal</th><th>SL</th><th>Risk %</th><th>Status</th></tr></thead><tbody>']
     
     for r in rows:
         disp = r["symbol"].replace(".NS", "")
-        is_dem = r["dir"] == "Demand"
-        dot = '<span class="dot dem">●</span>' if is_dem else '<span class="dot sup">●</span>'
+        dot = '<span class="dot dem">●</span>' if r["dir"] == "Demand" else '<span class="dot sup">●</span>'
         
         tv_url = r.get("tv")
         if not tv_url:
-            try:
-                import tv
-                tv_url = tv.chart_url(r["symbol"], r["tf"])
-            except ImportError:
-                tv_url = f"https://www.tradingview.com/chart/?symbol=NSE:{disp}"
+            try: import tv; tv_url = tv.chart_url(r["symbol"], r["tf"])
+            except ImportError: tv_url = f"https://www.tradingview.com/chart/?symbol=NSE:{disp}"
                 
-        symlink = f'<a class="sym" href="{tv_url}" target="_blank" title="Open {disp} on TradingView" style="font-weight:700;color:#eaf1fb;text-decoration:none;">📈 {disp}</a>'
+        symlink = f'<a class="sym" href="{tv_url}" target="_blank">📈 {disp}</a>'
         hq = '<span class="hq">⭐</span>' if r.get("hq") else ""
-        dist = r.get("_dist")
-        dist_badge = near_cls = ""
-        if dist is not None:
-            d = dist * 100.0
-            near_cls = ' class="near"' if d <= 2.0 else ""
-            dist_badge = f'<span class="zm near-up" title="Near">🎯 {d:.1f}%</span>' if d <= 2.0 else f'<span class="zm" title="Away">🎯 {d:.1f}%</span>'
-            
-        html.append(f'<tr{near_cls}><td>{symlink}</td><td>{_tf_hi(r["tf"])}</td><td>{dot} {r["dir"]} <span style="display:block;">{dist_badge}</span></td><td>{r["pattern"]}</td><td class="st-{r["state"].lower()}">{r["state"]} (#{r.get("touches", 0)})</td><td>{hq}</td><td><span class="zscore {_score_cls(r["score"])}">{r["score"]}</span></td><td>{r["entry"]:,.2f}</td><td>{_fmt2(r.get("distal"))}</td><td>{r["sl"]:,.2f}</td><td>{_fmt2(r.get("risk_pct"))}</td><td>{_status_badge(r.get("entry_status"))}</td></tr>')
+        
+        # Mobile CSS requires data-label to show headers on cards
+        html.append(f'<tr>'
+                    f'<td data-label="Asset">{symlink}</td>'
+                    f'<td data-label="TF">{_tf_hi(r["tf"])}</td>'
+                    f'<td data-label="Direction">{dot} {r["dir"]}</td>'
+                    f'<td data-label="Pattern">{r["pattern"]}</td>'
+                    f'<td data-label="State" class="st-{r["state"].lower()}">{r["state"]}</td>'
+                    f'<td data-label="HQ">{hq}</td>'
+                    f'<td data-label="Score"><span class="zscore {_score_cls(r["score"])}">{r["score"]}</span></td>'
+                    f'<td data-label="Entry">{r["entry"]:,.2f}</td>'
+                    f'<td data-label="Distal">{_fmt2(r.get("distal"))}</td>'
+                    f'<td data-label="SL">{r["sl"]:,.2f}</td>'
+                    f'<td data-label="Risk %">{_fmt2(r.get("risk_pct"))}</td>'
+                    f'<td data-label="Status">{_status_badge(r.get("entry_status"))}</td>'
+                    f'</tr>')
     
     html.append('</tbody></table></div>')
     st.markdown("".join(html), unsafe_allow_html=True)
 
 # ----------------- SIDEBAR -----------------
-st.sidebar.markdown("## ⚙️ Scanner Settings")
-scan_all = st.sidebar.toggle("All NSE stocks × Multi-Timeframe", value=True)
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def _universe_today(day_key):
-    try:
-        import zdata
-        syms, mcap, src = zdata.build_universe()
-        return syms, {k: mcap.get(k) for k in syms}, src
-    except ImportError: return ["RELIANCE.NS", "HDFCBANK.NS", "TCS.NS"], {}, "fallback"
+st.sidebar.markdown("## ⚙️ Settings")
+scan_all = st.sidebar.toggle("All NSE stocks", value=True)
 
 if scan_all:
-    _u_syms, _u_mcap, _u_src = _universe_today(datetime.date.today().isoformat())
-    sel_universe = st.sidebar.multiselect("Stocks", _u_syms, default=list(_u_syms), format_func=lambda x: f"{x.replace('.NS', '')}  ₹{(_u_mcap.get(x) or 0)/1000:.0f}k Cr" if _u_mcap else x) or list(_u_syms)
-    
     try:
         import zdata
-        all_tfs = zdata.TIMEFRAMES
-    except ImportError:
-        all_tfs = ["10m", "15m", "1h", "2h", "4h", "6h", "1D", "1W", "1M"]
+        _u_syms, mcap, _ = zdata.build_universe()
+    except ImportError: 
+        _u_syms = ["RELIANCE.NS", "HDFCBANK.NS", "TCS.NS"]
         
-    univ_tfs = st.sidebar.multiselect("Timeframes", all_tfs, default=["10m", "15m", "1h", "2h", "4h", "6h", "1D", "1W", "1M"], format_func=_tf_hi) or ["10m", "15m", "1h", "2h", "4h", "6h", "1D", "1W", "1M"]
+    sel_universe = st.sidebar.multiselect("Stocks", _u_syms, default=list(_u_syms)) or list(_u_syms)
+    univ_tfs = st.sidebar.multiselect("Timeframes", ["10m", "15m", "1h", "2h", "4h", "1D", "1W", "1M"], default=["15m", "1h", "4h", "1D"]) or ["15m", "1h", "4h", "1D"]
     live_sel = [t for t in univ_tfs if t in LIVE_TFS]
     stable_sel = [t for t in univ_tfs if t in STABLE_TFS]
-    auto_live, eod_filter = st.sidebar.toggle("Live auto-refresh", value=True), st.sidebar.toggle("Scan only in EOD band", value=True)
+    eod_filter = st.sidebar.toggle("EOD band filter", value=True)
     symbol, timeframe = "RELIANCE.NS", "4h"
 else:
-    sel_universe, univ_tfs, live_sel, stable_sel, auto_live, eod_filter = None, [], [], [], False, True
+    sel_universe, univ_tfs, live_sel, stable_sel, eod_filter = None, [], [], [], True
     symbol = st.sidebar.text_input("Symbol", value="RELIANCE.NS")
-    timeframe = st.sidebar.selectbox("Timeframe", ["10m", "15m", "1h", "2h", "4h", "1D", "1W", "1M"], index=4)
+    timeframe = st.sidebar.selectbox("Timeframe", ["15m", "1h", "4h", "1D"], index=2)
 
-min_score = st.sidebar.slider("Min quality score", 20, 100, 45, step=5)
-strict, recommended, active_only = st.sidebar.toggle("Spec-strict rules", value=False), st.sidebar.toggle("Recommended setup", value=False), st.sidebar.toggle("Active zones only", value=True)
-lookback = st.sidebar.selectbox("Lookback", ["All", "24", "12", "6", "3"])
+min_score = st.sidebar.slider("Min score", 20, 100, 45, step=5)
+active_only = st.sidebar.toggle("Active zones only", value=True)
+lookback = st.sidebar.selectbox("Lookback", ["All", "24", "12"])
 lookback_months = None if lookback == "All" else int(lookback)
 
-scanned_symbols, opt_symbol, _scan_ts = [], None, None
+_scan_ts = None
 
-# ----------------- MAIN BODY -----------------
-st.markdown("## 📊 Demand & Supply Zone Scanner")
-if scan_all:
-    tf_tuple = tuple(univ_tfs)
-    rows = []
-    _t0 = datetime.datetime.now()
-    with st.spinner(f"Scanning {len(sel_universe)} stocks × {len(tf_tuple)} timeframes..."):
-        if live_sel: rows += load_universe_live(tuple(live_sel), min_score, recommended, strict, eod_filter, tuple(sel_universe))
-        if stable_sel: rows += load_universe_stable(tuple(stable_sel), min_score, recommended, strict, eod_filter, tuple(sel_universe), _day_key())
-    
-    if auto_live and live_sel:
-        try: from streamlit_autorefresh import st_autorefresh; st_autorefresh(interval=180_000, key="mh_univ")
-        except ImportError: auto_refresh(180, "mh_univ")
-        
-    _scan_ts = datetime.datetime.now()
-    st.markdown(f'<div class="phead"><span class="t">🧭 Universe Zone Scan <span style="color:#4f8cff;">({len(sel_universe)} × {" · ".join(tf_tuple)})</span></span><span class="s">Scan time: {(datetime.datetime.now()-_t0).total_seconds():.1f}s</span></div>', unsafe_allow_html=True)
+# ----------------- MAIN APP & TABS -----------------
+st.markdown("## 📊 MarketHub App")
 
-    f1, f2, f3 = st.columns([1, 1, 1])
-    dir_opt = f1.selectbox("Direction", ["All", "Demand", "Supply"], index=0)
-    sort_opt = f2.selectbox("Sort", ["Near / Upcoming", "Score ↓", "Asset"], index=0)
-    st_opt = f3.selectbox("State", ["All", "Fresh", "Tested"], index=0)
+tab1, tab2, tab3 = st.tabs(["🎯 Scanner", "🌍 Markets", "📰 Live News"])
 
-    rr = [x for x in rows if (not active_only or x["state"] in ("Fresh", "Tested")) and (dir_opt == "All" or x["dir"] == dir_opt) and (st_opt == "All" or x["state"] == st_opt)]
-    for x in rr: x["_dist"] = abs(x["last"] - x["entry"]) / x["entry"] if x["last"] else 1e9
-
-    if sort_opt == "Near / Upcoming": rr.sort(key=lambda x: (x["_dist"], -x["score"]))
-    elif sort_opt == "Score ↓": rr.sort(key=lambda x: -x["score"])
-    else: rr.sort(key=lambda x: (x["symbol"], x["tf"]))
-
-    seen = set()
-    for x in rr:
-        if x["symbol"] not in seen:
-            seen.add(x["symbol"])
-            scanned_symbols.append(x["symbol"])
-    if scanned_symbols: opt_symbol = max(rr, key=lambda x: x["score"])["symbol"]
-
-    render_zone_table(rr, "All NSE Futures Stocks — Multi-Timeframe", f"{len(rr)} zones", lookback_hi="All", scan_time=_scan_ts)
-else:
-    try:
-        zones, df, extra = load_scan(symbol, timeframe, min_score, strict, lookback_months, recommended)
-        last = float(df["close"].iloc[-1]) if df is not None and len(df) else None
-        import zscan as _zs
-        if eod_filter: zones, _ = _zs.eod_zone_filter(zones, symbol)
-        
-        try:
-            import tv as _tv
-            tv_url = _tv.chart_url(symbol, timeframe)
-        except ImportError: tv_url = f"https://www.tradingview.com/chart/?symbol=NSE:{symbol.replace('.NS', '')}"
+with tab1:
+    if scan_all:
+        tf_tuple = tuple(univ_tfs)
+        rows = []
+        with st.spinner(f"Scanning..."):
+            if live_sel: rows += load_universe_live(tuple(live_sel), min_score, False, False, eod_filter, tuple(sel_universe))
+            if stable_sel: rows += load_universe_stable(tuple(stable_sel), min_score, False, False, eod_filter, tuple(sel_universe), _day_key())
             
-        rows = [{"symbol": symbol, "tf": timeframe, "pattern": z.patternType, "dir": "Demand" if z.isDemand else "Supply", "cat": z.zoneCategory, "entry": round(z.proxVal, 2), "distal": round(z.distVal, 2), "sl": round(z.slVal, 2), "risk_pct": round(getattr(z, "riskPct", 0.0), 2), "entry_status": getattr(z, "entryStatus", ""), "score": z.densityScore, "hq": bool(z.isHQ), "state": z.state, "touches": z.touchCount, "last": last, "tv": tv_url} for z in zones]
-        if active_only: rows = [r for r in rows if r["state"] in ("Fresh", "Tested")]
-        _scan_ts, scanned_symbols, opt_symbol = datetime.datetime.now(), [symbol], symbol
-        render_zone_table(rows, f"{symbol.replace('.NS','')} · {_tf_hi(timeframe)}", "Single stock", lookback_hi=lookback, scan_time=_scan_ts)
-    except Exception as ex: 
-        st.error(f"Error scanning {symbol}: {ex}")
+        _scan_ts = datetime.datetime.now()
+        
+        c1, c2 = st.columns(2)
+        dir_opt = c1.selectbox("Direction", ["All", "Demand", "Supply"], index=0)
+        sort_opt = c2.selectbox("Sort", ["Near / Upcoming", "Score ↓", "Asset"], index=0)
 
-# ----------------- MID & BOTTOM (Market, FII, News) -----------------
-st.markdown('<div style="height:14px;"></div>', unsafe_allow_html=True)
-render_board()
-render_sectors()
+        rr = [x for x in rows if (not active_only or x["state"] in ("Fresh", "Tested")) and (dir_opt == "All" or x["dir"] == dir_opt)]
+        for x in rr: x["_dist"] = abs(x["last"] - x["entry"]) / x["entry"] if x["last"] else 1e9
 
-r1, r2 = st.columns([1.0, 1.0], gap="small")
-with r1: render_fiidii()
-with r2:
-    opts = scanned_symbols or ([symbol] if symbol else [])
-    if opts:
-        _disp = {s.replace(".NS", ""): s for s in opts}
-        _names = list(_disp.keys())
-        _default = (opt_symbol or opts[0]).replace(".NS", "")
-        picked = st.selectbox("🎯 Options OI — stock", _names, index=_names.index(_default) if _default in _names else 0)
-        render_options(_disp[picked])
-    else: render_options(symbol)
+        if sort_opt == "Near / Upcoming": rr.sort(key=lambda x: (x["_dist"], -x["score"]))
+        elif sort_opt == "Score ↓": rr.sort(key=lambda x: -x["score"])
+        else: rr.sort(key=lambda x: (x["symbol"], x["tf"]))
 
-nc1, nc2 = st.columns([1.15, 1.0], gap="small")
-with nc1:
-    st.markdown("## 📰 News", unsafe_allow_html=True)
+        render_zone_table(rr, scan_time=_scan_ts)
+    else:
+        try:
+            zones, df, extra = load_scan(symbol, timeframe, min_score, False, lookback_months, False)
+            last = float(df["close"].iloc[-1]) if df is not None and len(df) else None
+            try: import tv; tv_url = tv.chart_url(symbol, timeframe)
+            except ImportError: tv_url = f"https://www.tradingview.com/chart/?symbol=NSE:{symbol.replace('.NS', '')}"
+                
+            rows = [{"symbol": symbol, "tf": timeframe, "pattern": z.patternType, "dir": "Demand" if z.isDemand else "Supply", "entry": round(z.proxVal, 2), "distal": round(z.distVal, 2), "sl": round(z.slVal, 2), "risk_pct": round(getattr(z, "riskPct", 0.0), 2), "score": z.densityScore, "hq": bool(z.isHQ), "state": z.state, "touches": z.touchCount, "last": last, "tv": tv_url} for z in zones]
+            if active_only: rows = [r for r in rows if r["state"] in ("Fresh", "Tested")]
+            render_zone_table(rows, scan_time=datetime.datetime.now())
+        except Exception as ex: 
+            st.error(f"Error: {ex}")
+
+with tab2:
+    st.markdown('<div class="phead"><span class="t">🌍 Global Indices & Commodities</span></div>', unsafe_allow_html=True)
+    render_board()
+    st.markdown('<div class="phead"><span class="t">🧱 Sector Indices</span></div>', unsafe_allow_html=True)
+    render_sectors()
+
+with tab3:
+    st.markdown('<div class="phead"><span class="t">📰 Live Market Feed</span></div>', unsafe_allow_html=True)
     ns = load_news()
     if ns:
         top = ns[0]
         title_hi = _hi(top["title"])
-        st.markdown(f'<div class="livebox"><span class="pulse"></span><span class="lbt">🔴 LIVE</span><a class="lbtitle" href="{top["link"]}" target="_blank">{title_hi}</a></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="livebox"><span class="pulse"></span><span style="color:#f2f6ff; font-weight:700; font-size:13px;"><a href="{top["link"]}" target="_blank" style="color:inherit; text-decoration:none;">{title_hi}</a></span></div>', unsafe_allow_html=True)
         
-        # 🔔 लाइव नोटिफिकेशन (Toast) लॉजिक
+        # 🔔 Broker-Style Toast Notification
         if st.session_state.last_news_title != title_hi:
-            st.toast(f"📰 **ब्रेकिंग न्यूज़:** {title_hi}", icon="🔥")
+            st.toast(f"📰 ताज़ा खबर: {title_hi}", icon="🔥")
             st.session_state.last_news_title = title_hi
 
-        for it in ns[1:11]:
-            st.markdown(f'<div class="news-item"><div class="news-time">{it["published"].strftime("%H:%M") if hasattr(it["published"],"strftime") else str(it["published"])[:5]}</div><div class="news-body"><a class="news-title" href="{it["link"]}" target="_blank">{_hi(it["title"])}</a><div>{"".join(f"<span class=chip t>{t}</span>" for t in it["tags"])}<span class="news-src"> · {it["source"]}</span></div></div></div>', unsafe_allow_html=True)
+        for it in ns[1:]:
+            st.markdown(f'<div class="news-item"><div class="news-time">{it["published"].strftime("%H:%M")}</div><div class="news-body"><a class="news-title" href="{it["link"]}" target="_blank">{_hi(it["title"])}</a><div><span class="chip t">{it["source"]}</span></div></div></div>', unsafe_allow_html=True)
     else:
-        st.caption("कोई ताज़ा समाचार उपलब्ध नहीं है (Missing backend or file).")
-
-with nc2:
-    st.markdown("## ⚡ NSE Events", unsafe_allow_html=True)
-    ev = load_events()
-    if ev:
-        top = ev[0]
-        st.markdown(f'<div class="livebox"><span class="pulse"></span><span class="lbt">⚡ LIVE</span><a class="lbtitle" href="{top["link"]}" target="_blank">{"".join(f"<span class=chip>{s}</span>" for s in top["stocks"])} {_hi(top["title"])}</a></div>', unsafe_allow_html=True)
-        for it in ev[1:10]:
-            st.markdown(f'<div class="news-item"><div class="news-time">{it["published"].strftime("%H:%M") if hasattr(it["published"],"strftime") else str(it["published"])[:5]}</div><div class="news-body">{"".join(f"<span class=chip>{s}</span>" for s in it["stocks"])}<div style="margin-top:2px;color:#cfe0ff;font-size:12.5px;"><a href="{it["link"]}" target="_blank" style="color:#dbe7fb;text-decoration:none;">{_hi(it["title"])}</a></div><div class="news-src">{it["source"]}</div></div></div>', unsafe_allow_html=True)
-    else:
-        st.caption("कोई नया इवेंट उपलब्ध नहीं है (Missing backend or file).")
+        st.caption("कोई ताज़ा समाचार उपलब्ध नहीं है। सुनिश्चित करें कि news.py में feedparser इंस्टॉल है।")
