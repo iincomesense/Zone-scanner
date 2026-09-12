@@ -553,14 +553,9 @@ def render_zone_table(rows, title, subtitle, lookback_hi="All", scan_time=None):
                "Chart = TradingView at that TF. OI = live Put/Call OI (Demand lean-bullish when "
                "P>C; Supply lean-bearish when C>P). Chain = that stock's NSE option chain. "
                "Scroll the table up/down — every scanned zone is shown. "
-               "v14.0 FINAL 12-RULE core: Entry line = boring candle BODY edge; SL = distal wick (buffer 0); "
-               "leg-in (wick≤50%, lower wick≤25%, close-strong 60%, TR≥ATR), boring 1-3 (body≤20% classic UOC), "
-               "leg-out (wick≤45%, body>leg-in ladder, TR≥1.5× boring, close-strong 60%, TR>ATR), band≤0.75%, RR 1:3. "
-               "Entry = zone_core confirm-close engine (a candle touches the entry line and closes back beyond it). "
-               "TP-Score (v13.3 study of every target-hitting zone): A = Nifty daily close on the zone's side of EMA20, "
-               "B = higher-TF close on the zone's side of EMA20, C = leg-in candle volume ≥ 20-bar avg, D = retest candle "
-               "volume < 1.3× avg (quiet), E = own-TF EMA20 slope with the zone, F = macro (demand: VIX ≥ 16.5 or S&P 20-day < 0; "
-               "supply: VIX < 16.5). 🎯 ≥4/6 → 56 % win in backtest, ⚠ ≤2/6 → 19 %. Hover the score for the sign-by-sign reason.")
+                "Scanner rules are kept aligned with the supplied Pine Script v6: "
+                "ATR-aware leg-in/base/leg-out validation, imbalance and volume gates, "
+                "quality scoring, duplicate filtering, and zone state tracking.")
 
 
 # ── Sidebar (collapsed by default, compact) ────────────────────────────────
@@ -639,8 +634,10 @@ _scan_ts = None           # last universe-scan timestamp (current update time)
 
 # ── TOP: Zone Scanner ──────────────────────────────────────────────────────
 st.markdown("## 📊 Demand & Supply Zone Scanner")
-st.caption("Nifty F&O stocks (market-cap ≥ ₹45,000 Cr) × 10m/15m/1h/2h/4h/6h/1D/1W/1M · EOD band high+10% … low−10% · DBR/RBR/RBD/DBD · zone_core v14.0 FINAL 12-RULE CORE "
-           "(Entry = boring BODY edge · SL = distal wick, buffer 0 · leg-in: wick≤50% / lower wick≤25% / close-strong 60% / TR≥ATR · boring 1-3 body≤20% classic UOC · leg-out: wick≤45% / body>leg-in / TR≥1.5× boring / close-strong 60% / TR>ATR · band≤0.75% · confirm-close · RR 1:3) · "
+st.caption("Nifty F&O stocks (market-cap ≥ ₹45,000 Cr) × 10m/15m/1h/2h/4h/6h/1D/1W/1M · "
+           "EOD band high+10% … low−10% · DBR/RBR/RBD/DBD · zone_core Pine Script v6 rules "
+           "(ATR/TR, leg-in and base validation, wick/body limits, imbalance, volume, scoring, "
+           "duplicate protection, and Fresh/Tested/Broken state tracking) · "
            "tap any row for TradingView chart + live option OI.")
 
 if scan_all:
