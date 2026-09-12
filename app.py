@@ -74,7 +74,7 @@ st.markdown("""
 .fdbx{background:#0e1626; border:1px solid var(--line); border-radius:10px; padding:8px 10px;}
 .fdbx .lab{font-size:10px; color:var(--muted); text-transform:uppercase;}
 .fdbx .val{font-size:19px; font-weight:800;}
-.fdrow{display:flex; gap:12px; flex-wrap:wrap;} .fdrow .fdbx{flex:1 1 120px;}
+.fdrow{display:flex; gap:12px; flex-wrap:wrap; margin-bottom:15px;} .fdrow .fdbx{flex:1 1 120px;}
 
 .news-item{display:flex; gap:9px; padding:7px 4px; border-bottom:1px solid #18233a;}
 .news-time{color:var(--muted); font-size:11px; width:44px; flex:0 0 44px;}
@@ -112,12 +112,14 @@ def load_sectors():
     try: import sectors as sc; return sc.fetch_sectors()
     except ImportError: return []
 
-@st.cache_data(ttl=120, show_spinner=False)
+# News Cache को 30 सेकंड कर दिया गया है ताकि यह बिल्कुल LIVE रहे
+@st.cache_data(ttl=30, show_spinner=False)
 def load_news():
     try: import news as n; return n.fetch_latest(15)
     except ImportError: return []
 
-@st.cache_data(ttl=300, show_spinner=False)
+# Events Cache को 30 सेकंड कर दिया गया है
+@st.cache_data(ttl=30, show_spinner=False)
 def load_events():
     try: import events as e; return e.fetch_events(10)
     except ImportError: return []
@@ -126,6 +128,11 @@ def load_events():
 def load_fiidii():
     try: import fiidii as f; return f.fetch(6)
     except ImportError: return []
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_options(symbol):
+    try: import options as o; return o.live_oi(symbol), o.top_strikes(symbol, n=7), o.deep_links(symbol)
+    except ImportError: return None, [], []
 
 @st.cache_data(ttl=30, show_spinner=False)
 def load_scan(symbol, timeframe, min_score, strict, lookback, recommended):
@@ -148,6 +155,12 @@ def _chg_html(c):
     if c is None: return '<span class="flat">—</span>'
     cls = "up" if c > 0 else ("dn" if c < 0 else "flat")
     return f'<span class="{cls}">{"+" if c > 0 else ""}{c:.2f}%</span>'
+
+def fmt_cr(x):
+    if x is None: return "—"
+    x = float(x)
+    cls = "up" if x > 0 else ("dn" if x < 0 else "flat")
+    return f'<span class="{cls}">{x:+,.0f}</span>'
 
 def _tv_chart_url(tv_sym, interval="1D"): return f'https://www.tradingview.com/chart/?symbol={quote(str(tv_sym))}&interval={interval}'
 
@@ -179,6 +192,24 @@ def render_sectors():
         html.append(f'<tr><td><a class="sym" href="{_tv_url}" target="_blank">📈 {s["label"]}</a></td><td>{s["price"]:,.1f}</td><td class="{cls}">{sign}{s["chg_pct"]:.2f}%</td><td class="tv"><a href="{_tv_url}" target="_blank">➜</a></td></tr>')
     html.append('</tbody></table>')
     st.markdown("".join(html), unsafe_allow_html=True)
+
+def render_fiidii():
+    try: days = load_fiidii()
+    except Exception: days = []
+    if not days:
+        st.caption("FII/DII data not reachable right now.")
+        return
+    today = days[0]
+    dome = today.get("date", "")
+    dome = dome.strftime("%d-%b") if hasattr(dome, "strftime") else str(dome)
+    st.markdown(f'<div class="fdrow"><div class="fdbx"><div class="lab">FII / FPI {dome}</div><div class="val">{fmt_cr(today.get("fii_net"))}</div><div class="sub">Buy {today.get("fii_buy","—")} · Sell {today.get("fii_sell","—")} Cr</div></div><div class="fdbx"><div class="lab">DII {dome}</div><div class="val">{fmt_cr(today.get("dii_net"))}</div><div class="sub">Buy {today.get("dii_buy","—")} · Sell {today.get("dii_sell","—")} Cr</div></div><div class="fdbx"><div class="lab">NIFTY 50</div><div class="val">{today.get("nifty","—")}</div><div class="sub">chg {fmt_cr(today.get("chg",""))} pts</div></div></div>', unsafe_allow_html=True)
+
+def render_options(symbol):
+    live, strikes, links = load_options(symbol)
+    if live:
+        st.markdown(f'<div class="fdrow"><div class="fdbx"><div class="lab">CALL OI</div><div class="val">{live["call_oi"]:,.0f}</div></div><div class="fdbx"><div class="lab">PUT OI</div><div class="val">{live["put_oi"]:,.0f}</div></div><div class="fdbx"><div class="lab">PCR</div><div class="val">{live["pcr"]:.2f}</div></div></div>', unsafe_allow_html=True)
+    li = "".join(f'<a class="chip" href="{l["url"]}" target="_blank" style="text-decoration:none; margin-right:4px;">↗ {l["label"]}</a>' for l in links)
+    if li: st.markdown(f'<div style="margin-bottom:10px;">{li}</div>', unsafe_allow_html=True)
 
 def _fmt2(v): return "—" if v is None else f"{float(v):,.2f}"
 
@@ -259,7 +290,7 @@ _scan_ts = None
 # ----------------- MAIN APP & TABS -----------------
 st.markdown("## 📊 MarketHub App")
 
-tab1, tab2, tab3 = st.tabs(["🎯 Scanner", "🌍 Markets", "📰 Live News"])
+tab1, tab2, tab3 = st.tabs(["🎯 Scanner", "🌍 Markets & OI", "📰 Live News"])
 
 with tab1:
     if scan_all:
@@ -282,6 +313,13 @@ with tab1:
         elif sort_opt == "Score ↓": rr.sort(key=lambda x: -x["score"])
         else: rr.sort(key=lambda x: (x["symbol"], x["tf"]))
 
+        seen = set()
+        for x in rr:
+            if x["symbol"] not in seen:
+                seen.add(x["symbol"])
+                scanned_symbols.append(x["symbol"])
+        if scanned_symbols: opt_symbol = max(rr, key=lambda x: x["score"])["symbol"]
+
         render_zone_table(rr, scan_time=_scan_ts)
     else:
         try:
@@ -292,13 +330,29 @@ with tab1:
                 
             rows = [{"symbol": symbol, "tf": timeframe, "pattern": z.patternType, "dir": "Demand" if z.isDemand else "Supply", "entry": round(z.proxVal, 2), "distal": round(z.distVal, 2), "sl": round(z.slVal, 2), "risk_pct": round(getattr(z, "riskPct", 0.0), 2), "score": z.densityScore, "hq": bool(z.isHQ), "state": z.state, "touches": z.touchCount, "last": last, "tv": tv_url} for z in zones]
             if active_only: rows = [r for r in rows if r["state"] in ("Fresh", "Tested")]
-            render_zone_table(rows, scan_time=datetime.datetime.now())
+            _scan_ts, scanned_symbols, opt_symbol = datetime.datetime.now(), [symbol], symbol
+            render_zone_table(rows, scan_time=_scan_ts)
         except Exception as ex: 
             st.error(f"Error: {ex}")
 
 with tab2:
+    st.markdown('<div class="phead"><span class="t">🏛️ FII / DII (Today)</span></div>', unsafe_allow_html=True)
+    render_fiidii()
+
+    st.markdown('<div class="phead"><span class="t">🎯 Options OI</span></div>', unsafe_allow_html=True)
+    opts = scanned_symbols or ([symbol] if symbol else [])
+    if opts:
+        _disp = {s.replace(".NS", ""): s for s in opts}
+        _names = list(_disp.keys())
+        _default = (opt_symbol or opts[0]).replace(".NS", "")
+        picked = st.selectbox("Stock", _names, index=_names.index(_default) if _default in _names else 0, label_visibility="collapsed")
+        render_options(_disp[picked])
+    else: 
+        render_options(symbol)
+
     st.markdown('<div class="phead"><span class="t">🌍 Global Indices & Commodities</span></div>', unsafe_allow_html=True)
     render_board()
+    
     st.markdown('<div class="phead"><span class="t">🧱 Sector Indices</span></div>', unsafe_allow_html=True)
     render_sectors()
 
@@ -318,4 +372,4 @@ with tab3:
         for it in ns[1:]:
             st.markdown(f'<div class="news-item"><div class="news-time">{it["published"].strftime("%H:%M")}</div><div class="news-body"><a class="news-title" href="{it["link"]}" target="_blank">{_hi(it["title"])}</a><div><span class="chip t">{it["source"]}</span></div></div></div>', unsafe_allow_html=True)
     else:
-        st.caption("कोई ताज़ा समाचार उपलब्ध नहीं है। सुनिश्चित करें कि news.py में feedparser इंस्टॉल है।")
+        st.caption("कोई ताज़ा समाचार उपलब्ध नहीं है।")
