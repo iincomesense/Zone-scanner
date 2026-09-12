@@ -409,7 +409,15 @@ class ZoneEngine:
             isLegOutExplosive = legOutTR >= (self.legOutTrMult * self.atr_val[pos_legOut])
             isLegOutWickValid = self._wick_pct(i, legOutIdx) <= self.maxWickPct
             passesTRHierarchy = (legOutTR >= self.legOutMinTrRatio * legInTR) and (legInTR > maxBaseTR)
-            passesVolume = legOutVol > legInVol
+            # Some Yahoo Finance intraday responses report the first exchange
+            # session candle with volume=0 even though TradingView has the
+            # real volume for that candle.  A zero/NaN leg-out volume is
+            # therefore "unknown", not evidence that the leg-out volume was
+            # lower.  Preserve the Pine comparison whenever both values are
+            # available, while avoiding a false rejection caused by the data
+            # vendor's missing opening-candle volume.
+            legOutVolumeMissing = not np.isfinite(legOutVol) or legOutVol <= 0
+            passesVolume = legOutVolumeMissing or legOutVol > legInVol
 
             isOvernight = self._is_overnight_gap(i)
 
@@ -453,7 +461,8 @@ class ZoneEngine:
                     f"REJECT: RBR={isRBR} DBR={isDBR} DBD={isDBD} RBD={isRBD} | "
                     f"explosive={isLegOutExplosive}(TR={legOutTR:.2f} need>={self.legOutTrMult*self.atr_val[pos_legOut]:.2f}) "
                     f"wick={isLegOutWickValid}({self._wick_pct(i,legOutIdx):.2f}<={self.maxWickPct}) "
-                    f"trHier={passesTRHierarchy} vol={passesVolume}({legOutVol}>{legInVol}) "
+                    f"trHier={passesTRHierarchy} vol={passesVolume}("
+                    f"{'unknown' if legOutVolumeMissing else f'{legOutVol}>{legInVol}'}) "
                     f"imbalance={hasImbalance} bullClv={bullClv:.2f} bearClv={bearClv:.2f}")
                 continue
 
