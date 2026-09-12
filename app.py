@@ -44,7 +44,7 @@ st.markdown("""
 .sumbar .sep{color:var(--muted);}
 .sumbar .lbl{color:var(--muted); font-size:10.5px;}
 .zwrap{overflow:auto; max-height:560px; border:1px solid var(--line); border-radius:12px; background:#0e1626; scrollbar-width:thin;}
-.zhin{width:100%; border-collapse:collapse; font-size:12px; min-width:1080px;}
+.zhin{width:100%; border-collapse:collapse; font-size:12px; min-width:800px;}
 .zhin thead th{position:sticky; top:0; z-index:3; text-align:left; color:var(--muted); font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; padding:7px 8px; border-bottom:1px solid var(--line); background:#0c1422; white-space:nowrap;}
 .zhin td{padding:6px 8px; border-bottom:1px solid #18233a; color:#d9e5f6; font-variant-numeric:tabular-nums; white-space:nowrap;}
 .zhin tr.near:hover{background:#13233a;}
@@ -62,10 +62,6 @@ st.markdown("""
 .zscore.hi{color:var(--up); border-color:rgba(30,203,107,.4);}
 .zscore.md{color:var(--accent2); border-color:rgba(34,211,238,.4);}
 .zscore.lo{color:var(--muted);}
-.oi{font-size:11px; padding:1px 7px; border-radius:10px; border:1px solid var(--line); white-space:nowrap; font-weight:600;}
-.oi.plus{color:var(--up); border-color:rgba(30,203,107,.4);}
-.oi.minus{color:var(--down); border-color:rgba(255,75,92,.35);}
-.oi.none{color:var(--muted);}
 .fdbx{background:#0e1626; border:1px solid var(--line); border-radius:10px; padding:8px 10px;}
 .fdbx .lab{font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px;}
 .fdbx .val{font-size:19px; font-weight:800; font-variant-numeric:tabular-nums;}
@@ -245,14 +241,6 @@ def render_fiidii():
             for rec in days[1:6]:
                 st.markdown(f'<div class="fdbx"><div class="lab">{rec.get("date","")}</div><div class="val">FII {fmt_cr(rec.get("fii_net"))} · DII {fmt_cr(rec.get("dii_net"))} · NIFTY {rec.get("nifty","—")}</div></div>', unsafe_allow_html=True)
 
-def _oi_badge(oi, is_demand):
-    if not oi: return '<span class="oi none">—</span>'
-    if isinstance(oi, dict):
-        cls = "plus" if oi.get("aligned") else "minus"
-        return f'<span class="oi {cls}">{oi["label"]}</span>'
-    aligned = oi.startswith("P>") if is_demand else oi.startswith("C>")
-    return f'<span class="oi {"plus" if aligned else "minus"}">{oi}</span>'
-
 def render_options(symbol):
     live, strikes, links = load_options(symbol)
     st.markdown(f'<div class="phead"><span class="t">🎯 Options OI</span><span class="s">{symbol.upper()}</span></div>', unsafe_allow_html=True)
@@ -267,14 +255,6 @@ def zone_table_heading(rows, lookback_hi="All", scan_time=None):
 
 def _fmt2(v): return "—" if v is None else f"{float(v):,.2f}"
 
-def _tp_badge(r):
-    sc, mx, lab = r.get("tp_score"), r.get("tp_max"), r.get("tp_label") or ""
-    if sc is None or not mx: return "—"
-    col = {"TP-High": "#22c55e", "TP-Low": "#f87171"}.get(lab, "#eab308")
-    icon = {"TP-High": "🎯 ", "TP-Low": "⚠ "}.get(lab, "")
-    why = (r.get("tp_why") or "").replace('"', "'")
-    return f'<span title="{why}" style="color:{col};font-weight:700;">{icon}{sc}/{mx}</span><span style="display:block;font-size:10px;color:#9fb0c8;">{r.get("tp_signs", "")}</span>'
-
 def _status_badge(es):
     es = es or ""
     if es == "Waiting": return '<span style="color:#4f8cff;font-weight:700;">⏳ Waiting</span>'
@@ -283,25 +263,39 @@ def _status_badge(es):
     return es or "—"
 
 def render_zone_table(rows, title, subtitle, lookback_hi="All", scan_time=None):
+    import tv # Make sure tv.py is available for chart links
     st.markdown(f'<div class="phead"><span class="t">{title}</span><span class="s">{subtitle}</span></div>', unsafe_allow_html=True)
     if not rows: return st.info("No valid zones found.")
     st.markdown(zone_table_heading(rows, lookback_hi, scan_time), unsafe_allow_html=True)
-    html = ['<div class="zwrap"><table class="zhin"><thead><tr><th>Asset</th><th>Chart</th><th>Timeframe</th><th>Direction</th><th>Pattern</th><th>Type</th><th>State</th><th>HQ</th><th>Score</th><th>Boring</th><th>Gap×LegIn</th><th>Entry</th><th>Distal</th><th>SL</th><th>Risk %</th><th>Status</th><th>TP-Score</th><th>OI</th><th>Chain</th></tr></thead><tbody>']
+    
+    # UI से हटाए गए कॉलम्स: Chart, Type, Boring, GapxLegIn, TP-Score, OI, Chain
+    html = ['<div class="zwrap"><table class="zhin"><thead><tr><th>Asset</th><th>Timeframe</th><th>Direction</th><th>Pattern</th><th>State</th><th>HQ</th><th>Score</th><th>Entry</th><th>Distal</th><th>SL</th><th>Risk %</th><th>Status</th></tr></thead><tbody>']
+    
     for r in rows:
         disp = r["symbol"].replace(".NS", "")
         is_dem = r["dir"] == "Demand"
         dot = '<span class="dot dem">●</span>' if is_dem else '<span class="dot sup">●</span>'
-        tv = f'<a href="{r["tv"]}" target="_blank">✓ Open</a>' if r.get("tv") else "—"
-        symlink = f'<a class="sym" href="{r["tv"]}" target="_blank">📈 {disp}</a>' if r.get("tv") else f'<span style="font-weight:700;color:#eaf1fb;">{disp}</span>'
+        
+        # Asset को TradingView चार्ट लिंक बनाया गया है
+        tv_url = r.get("tv")
+        if not tv_url:
+            try:
+                tv_url = tv.chart_url(r["symbol"], r["tf"])
+            except Exception:
+                tv_url = f"https://www.tradingview.com/chart/?symbol=NSE:{disp}" # Fallback
+                
+        symlink = f'<a class="sym" href="{tv_url}" target="_blank" title="Open {disp} on TradingView" style="font-weight:700;color:#eaf1fb;text-decoration:none;">📈 {disp}</a>'
+        
         hq = '<span class="hq">⭐</span>' if r.get("hq") else ""
-        chain = f'<a href="{r["chain"]}" target="_blank">OI ↗</a>' if r.get("chain") else "—"
         dist = r.get("_dist")
         dist_badge = near_cls = ""
         if dist is not None:
             d = dist * 100.0
             near_cls = ' class="near"' if d <= 2.0 else ""
             dist_badge = f'<span class="zm near-up" title="Near">🎯 {d:.1f}%</span>' if d <= 2.0 else f'<span class="zm" title="Away">🎯 {d:.1f}%</span>'
-        html.append(f'<tr{near_cls}><td>{symlink}</td><td>{tv}</td><td>{_tf_hi(r["tf"])}</td><td>{dot} {r["dir"]} <span style="display:block;">{dist_badge}</span></td><td>{r["pattern"]}</td><td>{r.get("cat", r.get("pattern_type", "Continuation"))}</td><td class="st-{r["state"].lower()}">{r["state"]} (#{r.get("touches", 0)})</td><td>{hq}</td><td><span class="zscore {_score_cls(r["score"])}">{r["score"]}</span></td><td>{r.get("boring", "—")}</td><td>{_fmt2(r.get("gap_x_legin"))}</td><td>{r["entry"]:,.2f}</td><td>{_fmt2(r.get("distal"))}</td><td>{r["sl"]:,.2f}</td><td>{_fmt2(r.get("risk_pct"))}</td><td>{_status_badge(r.get("entry_status"))}</td><td>{_tp_badge(r)}</td><td>{_oi_badge(r.get("oi"), is_dem)}</td><td>{chain}</td></tr>')
+            
+        html.append(f'<tr{near_cls}><td>{symlink}</td><td>{_tf_hi(r["tf"])}</td><td>{dot} {r["dir"]} <span style="display:block;">{dist_badge}</span></td><td>{r["pattern"]}</td><td class="st-{r["state"].lower()}">{r["state"]} (#{r.get("touches", 0)})</td><td>{hq}</td><td><span class="zscore {_score_cls(r["score"])}">{r["score"]}</span></td><td>{r["entry"]:,.2f}</td><td>{_fmt2(r.get("distal"))}</td><td>{r["sl"]:,.2f}</td><td>{_fmt2(r.get("risk_pct"))}</td><td>{_status_badge(r.get("entry_status"))}</td></tr>')
+    
     html.append('</tbody></table></div>')
     st.markdown("".join(html), unsafe_allow_html=True)
 
@@ -355,14 +349,13 @@ if scan_all:
 
     f1, f2, f3 = st.columns([1, 1, 1])
     dir_opt = f1.selectbox("Direction", ["All", "Demand", "Supply"], index=0)
-    sort_opt = f2.selectbox("Sort", ["Near / Upcoming", "TP-Score ↓", "Score ↓", "Asset"], index=0)
+    sort_opt = f2.selectbox("Sort", ["Near / Upcoming", "Score ↓", "Asset"], index=0) # Removed TP-Score from Sort options too
     st_opt = f3.selectbox("State", ["All", "Fresh", "Tested"], index=0)
 
     rr = [x for x in rows if (not active_only or x["state"] in ("Fresh", "Tested")) and (dir_opt == "All" or x["dir"] == dir_opt) and (st_opt == "All" or x["state"] == st_opt)]
     for x in rr: x["_dist"] = abs(x["last"] - x["entry"]) / x["entry"] if x["last"] else 1e9
 
     if sort_opt == "Near / Upcoming": rr.sort(key=lambda x: (x["_dist"], -x["score"]))
-    elif sort_opt == "TP-Score ↓": rr.sort(key=lambda x: (-(x.get("tp_score") or 0) / max(x.get("tp_max") or 1, 1), x["_dist"]))
     elif sort_opt == "Score ↓": rr.sort(key=lambda x: -x["score"])
     else: rr.sort(key=lambda x: (x["symbol"], x["tf"]))
 
@@ -382,6 +375,7 @@ else:
 
     import tv as _tv, options as _opt, zscan as _zs
     _links = _opt.deep_links(symbol)
+    # Header area option chain links retained as per UI structure
     st.markdown(f'<div class="chips"><a class="chip t" href="{_tv.chart_url(symbol, timeframe)}" target="_blank">📈 TradingView chart</a>' + "".join(f'<a class="chip" href="{l["url"]}" target="_blank">↗ {l["label"]}</a>' for l in _links) + '</div>', unsafe_allow_html=True)
     
     if eod_filter: zones, _ = _zs.eod_zone_filter(zones, symbol)
