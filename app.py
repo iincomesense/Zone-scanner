@@ -112,13 +112,11 @@ def load_sectors():
     try: import sectors as sc; return sc.fetch_sectors()
     except ImportError: return []
 
-# News Cache को 30 सेकंड कर दिया गया है ताकि यह बिल्कुल LIVE रहे
 @st.cache_data(ttl=30, show_spinner=False)
 def load_news():
     try: import news as n; return n.fetch_latest(15)
     except ImportError: return []
 
-# Events Cache को 30 सेकंड कर दिया गया है
 @st.cache_data(ttl=30, show_spinner=False)
 def load_events():
     try: import events as e; return e.fetch_events(10)
@@ -285,7 +283,11 @@ active_only = st.sidebar.toggle("Active zones only", value=True)
 lookback = st.sidebar.selectbox("Lookback", ["All", "24", "12"])
 lookback_months = None if lookback == "All" else int(lookback)
 
+# --- यहाँ NameError फिक्स किया गया है ---
+scanned_symbols = []
+opt_symbol = None
 _scan_ts = None
+# ----------------------------------------
 
 # ----------------- MAIN APP & TABS -----------------
 st.markdown("## 📊 MarketHub App")
@@ -372,4 +374,4 @@ with tab3:
         for it in ns[1:]:
             st.markdown(f'<div class="news-item"><div class="news-time">{it["published"].strftime("%H:%M")}</div><div class="news-body"><a class="news-title" href="{it["link"]}" target="_blank">{_hi(it["title"])}</a><div><span class="chip t">{it["source"]}</span></div></div></div>', unsafe_allow_html=True)
     else:
-        st.caption("कोई ताज़ा समाचार उपलब्ध नहीं है।")
+        st.caption("कोई ताज़ा समाचार उपलब्ध नहीं है। सुनिश्चित करें कि news.py में feedparser इंस्टॉल है।")
