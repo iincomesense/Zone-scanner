@@ -40,7 +40,7 @@ PINE_DEFAULTS: Dict[str, Any] = {
     "legInMinAtrMult": 1.0,
     "minClvPct": 0.60,
     "legInToBaseSizeMult": 2.0,
-    "legInMinBodyPct": 0.60,
+    "legInMinBodyPct": 0.55,
     "useImbalance": True,
     "maxImbalanceMult": 1.0,
     "relaxGapCapOvernight": True,
@@ -50,7 +50,7 @@ PINE_DEFAULTS: Dict[str, Any] = {
     "minValidScore": 40,
     "hqScoreThreshold": 90,
     "legOutBodyHeavyPct": 0.60,
-    "testedLegOutRetracePct": 0.50,
+    "testedLegOutRetracePct": 0.90,
     "maxTestedCount": 2,
 }
 
@@ -136,7 +136,7 @@ class ZoneEngine:
         legInMinAtrMult=1.0,
         minClvPct=0.60,
         legInToBaseSizeMult=2.0,
-        legInMinBodyPct=0.60,
+        legInMinBodyPct=0.55,
         useImbalance=True,
         maxImbalanceMult=1.0,          # Pine में declared, पर logic में unused (Pine जैसा ही)
         relaxGapCapOvernight=True,     # Pine में declared, पर logic में unused (Pine जैसा ही)
@@ -146,7 +146,7 @@ class ZoneEngine:
         minValidScore=40,
         hqScoreThreshold=90,
         legOutBodyHeavyPct=0.60,
-        testedLegOutRetracePct=0.50,
+        testedLegOutRetracePct=0.90,
         maxTestedCount=2,
         # ---------------- सिर्फ debugging हेतु (logic पर कोई असर नहीं) ----------------
         debug: bool = False,
