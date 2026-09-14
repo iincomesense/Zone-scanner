@@ -9,7 +9,7 @@ PINE_DEFAULTS: Dict[str, Any] = {
     "atrPeriod": 14, "volSmaPeriod": 20, "legOutTrMult": 1.2, "legOutMinTrRatio": 1.0,
     "hqLegOutTrMult": 2.0, "hqLegInAtrMult": 1.5, "maxBaseAtrMult": 1.0, "maxWickPct": 0.30,
     "minBaseCountInput": 1, "maxBaseCountInput": 3, "legInMinAtrMult": 1.0,
-    "minClvPct": 0.60, "legInToBaseSizeMult": 2.0, 
+    "minClvPct": 0.60, "legInToBaseSizeMult": 2.0,
     "legInMinBodyPct": 0.55,  # स्क्रीनशॉट के अनुसार (Pine में 0.60 था)
     "useImbalance": True, "maxImbalanceMult": 1.0, "relaxGapCapOvernight": True,
     "genuineGapBonus": 10, "overnightGapBonus": 15, "rejectOppositeCoverPct": 0.50,
@@ -18,12 +18,16 @@ PINE_DEFAULTS: Dict[str, Any] = {
     "maxTestedCount": 2,
 }
 
+REQUIRED_COLUMNS = ("open", "high", "low", "close", "volume")
+
+
 @dataclass
 class Box:
     left: int; top: float; right: int; bottom: float; border_color: object; bgcolor: object
     def set_right(self, right): self.right = right
     def set_bgcolor(self, color): self.bgcolor = color
     def set_border_color(self, color): self.border_color = color
+
 
 @dataclass
 class Zone:
@@ -36,16 +40,38 @@ class Zone:
     legOutVolX: float = float("nan"); retestVolX: float = float("nan")
     entryStatus: str = ""; entryPrice: float = 0.0; gapToLegIn: float = 0.0
 
+
 class ZoneEngine:
     def __init__(self, df: pd.DataFrame, **kwargs):
-        self.df = df.copy()
-        
+        if df is None or len(df) == 0:
+            raise ValueError("इनपुट DataFrame खाली है — ज़ोन स्कैन करने के लिए OHLCV डेटा चाहिए।")
+
+        work_df = df.copy()
+        # --- BUGFIX: कॉलम नामों को normalize करें (yfinance जैसी लाइब्रेरी अक्सर 'Open','High' आदि देती हैं) ---
+        work_df.columns = [str(c).strip().lower() for c in work_df.columns]
+        missing_cols = [c for c in REQUIRED_COLUMNS if c not in work_df.columns]
+        if missing_cols:
+            raise ValueError(f"DataFrame में आवश्यक कॉलम नहीं मिले: {missing_cols}")
+
+        # --- BUGFIX: index अनिवार्य रूप से DatetimeIndex होना चाहिए, वरना dayofweek/time_ms crash करेगा ---
+        if not isinstance(work_df.index, pd.DatetimeIndex):
+            raise TypeError("DataFrame का index pandas DatetimeIndex होना चाहिए (टाइमस्टैम्प के साथ)।")
+
+        # --- BUGFIX: इनपुट को समय के अनुसार sorted रखें और duplicate timestamps हटाएँ, वरना TR/gap/overnight
+        #     गणनाएँ गलत क्रम में हो सकती हैं ---
+        work_df = work_df.sort_index()
+        work_df = work_df[~work_df.index.duplicated(keep="last")]
+        self.df = work_df
+
         for k, v in PINE_DEFAULTS.items():
             setattr(self, k, kwargs.get(k, v))
-            
+
         HARD_MAX_BASE_COUNT = 3
         self.minBaseCount = max(1, min(self.minBaseCountInput, self.maxBaseCountInput))
-        self.maxBaseCount = min(self.maxBaseCountInput, HARD_MAX_BASE_COUNT)
+        # --- BUGFIX: पहले maxBaseCount, minBaseCount से कम हो सकता था (जैसे maxBaseCountInput<=0 या
+        #     min>max पास करने पर), जिससे scan-loop की range हमेशा खाली रहती और इंजन चुपचाप 0 zones देता।
+        #     अब maxBaseCount हमेशा minBaseCount से बड़ा/बराबर रहेगा। ---
+        self.maxBaseCount = max(self.minBaseCount, min(self.maxBaseCountInput, HARD_MAX_BASE_COUNT))
 
         self.open = self.df["open"].to_numpy(dtype=float)
         self.high = self.df["high"].to_numpy(dtype=float)
@@ -54,7 +80,9 @@ class ZoneEngine:
         self.volume = self.df["volume"].to_numpy(dtype=float)
         self.n = len(self.df)
         self.dayofweek = self.df.index.dayofweek.to_numpy()
-        self.time_ms = (self.df.index.astype(np.int64) // 10**6)
+        # --- BUGFIX: DatetimeIndex.astype(np.int64) नए/पुराने pandas वर्ज़न में deprecated/असंगत व्यवहार
+        #     दिखा सकता है। आधिकारिक तौर पर स्थिर 'asi8' (nanoseconds since epoch) इस्तेमाल किया। ---
+        self.time_ms = self.df.index.asi8 // 10**6
         self.active_zones: List[Zone] = []
         self._prepare_indicators()
 
@@ -86,7 +114,7 @@ class ZoneEngine:
     def _is_bull(self, i, idx): pos = i - idx; return self.close[pos] > self.open[pos]
     def _is_bear(self, i, idx): pos = i - idx; return self.open[pos] > self.close[pos]
     def _body_high_low(self, i, idx): pos = i - idx; return max(self.open[pos], self.close[pos]), min(self.open[pos], self.close[pos])
-    
+
     def _wick_pct(self, i, idx):
         pos = i - idx
         rng = self.high[pos] - self.low[pos]
@@ -105,7 +133,7 @@ class ZoneEngine:
         zoneFoundOnThisBar = False
         for bCount in range(self.minBaseCount, self.maxBaseCount + 1):
             if zoneFoundOnThisBar: break
-            
+
             legOutIdx, legInIdx, prevIdx = 0, bCount + 1, bCount + 2
             pos_legIn = i - legInIdx
             if pos_legIn < 0 or np.isnan(self.atr_val[pos_legIn]): continue
@@ -115,7 +143,7 @@ class ZoneEngine:
             legInIsBull, legInIsBear = self._is_bull(i, legInIdx), self._is_bear(i, legInIdx)
 
             if legInRng == 0 or self._body_pct(i, legInIdx) < self.legInMinBodyPct: continue
-            
+
             pos_prev = i - prevIdx
             if pos_prev < 0: continue
 
@@ -123,7 +151,7 @@ class ZoneEngine:
             if (legInIsBull and self._is_bear(i, prevIdx)) or (legInIsBear and self._is_bull(i, prevIdx)):
                 prevBodyHigh, prevBodyLow = self._body_high_low(i, prevIdx)
                 overlap = max(0.0, min(prevBodyHigh, legInHigh) - max(prevBodyLow, legInLow))
-                if overlap / legInRng >= self.rejectOppositeCoverPct: 
+                if overlap / legInRng >= self.rejectOppositeCoverPct:
                     continue
 
             bullClv, bearClv = (legInClose - legInLow) / legInRng, (legInHigh - legInClose) / legInRng
@@ -139,7 +167,7 @@ class ZoneEngine:
                 if self.low[pos_b] < minBaseLow: minBaseLow = self.low[pos_b]
 
             if not allBaseValid or maxBaseTR == 0: continue
-            
+
             effectiveBaseSizeMult = 1.5 if bCount == 1 else self.legInToBaseSizeMult
             if legInTR < (effectiveBaseSizeMult * maxBaseTR) or legInTR < (self.legInMinAtrMult * self.atr_val[pos_legIn]): continue
 
@@ -152,10 +180,10 @@ class ZoneEngine:
 
             # --- Pine Script Exact Logic: isLegOutExplosive uses ATR ---
             isLegOutExplosive = legOutTR >= (self.legOutTrMult * self.atr_val[pos_legOut])
-            
+
             isLegOutWickValid = self._wick_pct(i, legOutIdx) <= self.maxWickPct
             passesTRHierarchy = (legOutTR >= self.legOutMinTrRatio * legInTR) and (legInTR > maxBaseTR)
-            
+
             legOutVolumeMissing = not np.isfinite(legOutVol) or legOutVol <= 0
             passesVolume = legOutVolumeMissing or legOutVol > legInVol
             isOvernight = self._is_overnight_gap(i)
@@ -171,6 +199,15 @@ class ZoneEngine:
                     hasImbalance = hasGenuineGap or (legOutClose < legInLow)
                     gapSize = max(0.0, minBaseLow - legOutHigh)
 
+            # --- BUGFIX: 'maxImbalanceMult' और 'relaxGapCapOvernight' PINE_DEFAULTS में मौजूद थे
+            #     लेकिन कोड में कहीं इस्तेमाल नहीं हो रहे थे (dead config) — इसलिए बहुत बड़े,
+            #     अवास्तविक gap वाले zones भी valid मान लिए जाते थे। अब gap-size को ATR के सापेक्ष
+            #     कैप किया गया है, और overnight गैप्स के लिए वैकल्पिक रूप से इसे relax किया जा सकता है। ---
+            passesGapCap = True
+            if self.useImbalance and hasGenuineGap and not (self.relaxGapCapOvernight and isOvernight):
+                maxAllowedGap = self.maxImbalanceMult * self.atr_val[pos_legOut]
+                passesGapCap = gapSize <= maxAllowedGap
+
             legOutBodyHigh, legOutBodyLow = max(legOutOpen, legOutClose), min(legOutOpen, legOutClose)
             if (legOutBodyLow <= minBaseLow) and (legOutBodyHigh >= maxBaseHigh) and not hasGenuineGap: continue
 
@@ -179,7 +216,8 @@ class ZoneEngine:
             isDBD = legInIsBear and (bearClv >= self.minClvPct) and isSupplyLegOut
             isRBD = legInIsBull and (bullClv >= self.minClvPct) and isSupplyLegOut
 
-            if not ((isRBR or isDBR or isDBD or isRBD) and isLegOutExplosive and isLegOutWickValid and passesTRHierarchy and passesVolume and hasImbalance): continue
+            if not ((isRBR or isDBR or isDBD or isRBD) and isLegOutExplosive and isLegOutWickValid
+                    and passesTRHierarchy and passesVolume and hasImbalance and passesGapCap): continue
 
             densityScore = 15 if bCount == 1 else 0
             if legInTR >= (self.hqLegInAtrMult * self.atr_val[pos_legIn]): densityScore += 10
@@ -206,7 +244,7 @@ class ZoneEngine:
             if isOvernight and hasGenuineGap: densityScore += self.overnightGapBonus
 
             if densityScore < self.minValidScore: continue
-            
+
             isHQZone = densityScore >= self.hqScoreThreshold
             zoneFoundOnThisBar = True
 
@@ -217,13 +255,18 @@ class ZoneEngine:
             tpVal = (proxVal + riskPerShare * self.targetRR) if isDemandLegOut else (proxVal - riskPerShare * self.targetRR)
             legOutMidLevel = (legOutHigh - self.testedLegOutRetracePct * (legOutHigh - legOutLow)) if isDemandLegOut else (legOutLow + self.testedLegOutRetracePct * (legOutHigh - legOutLow))
 
+            # --- BUGFIX: पहले 'checked' काउंटर सिर्फ़ non-broken zones पर बढ़ता था (क्योंकि Broken
+            #     zones पर 'continue' हो जाता था और काउंटर नहीं बढ़ता), इसलिए अगर history में बहुत सारे
+            #     broken zones जमा हो जाएँ तो यह लूप हर नए बार पर लगभग पूरी active_zones list स्कैन
+            #     कर सकता था (परफ़ॉर्मेंस बग)। अब counter हर zone जांचने पर बढ़ता है, इसलिए यह हमेशा
+            #     ज़्यादा से ज़्यादा आखिरी 11 zones ही चेक करेगा। ---
             isDuplicate, checked = False, 0
             for checkZ in reversed(self.active_zones):
-                if checkZ.state == "Broken": continue
-                if checkZ.isDemand == isDemandLegOut and abs(checkZ.proxVal - proxVal) < (self.atr_val[i] * 0.25):
+                checked += 1
+                if checkZ.state != "Broken" and checkZ.isDemand == isDemandLegOut and abs(checkZ.proxVal - proxVal) < (self.atr_val[i] * 0.25):
                     isDuplicate = True
                     break
-                if (checked := checked + 1) >= 11: break
+                if checked >= 11: break
             if isDuplicate: continue
 
             boxBorderColor, boxFillColor = ("green", ("green", 0.15)) if isDemandLegOut else ("red", ("red", 0.15))
@@ -273,35 +316,44 @@ class ZoneEngine:
             self._update_zone_states(i)
         return self.active_zones
 
+
 def settings(**overrides) -> Dict[str, Any]:
     result = dict(PINE_DEFAULTS)
     result.update(overrides)
     return result
+
 
 def scan_zones(df: pd.DataFrame, params: Optional[Dict[str, Any]] = None) -> List[Zone]:
     config = settings(**(params or {}))
     engine_config = {key: value for key, value in config.items() if key in PINE_DEFAULTS}
     return ZoneEngine(df, **engine_config).run()
 
+
 def recommended_trade_setup() -> Dict[str, Any]:
     return {"patterns": ["RBR", "DBR", "DBD", "RBD"], "targetRR": PINE_DEFAULTS["targetRR"], "risk_pct": PINE_DEFAULTS["riskPct"], "capital": PINE_DEFAULTS["accountCapital"], "slBufferAtr": PINE_DEFAULTS["slBufferAtr"], "entry_mode": "prox"}
+
 
 def backtest_summary(zones: List[Zone], df: pd.DataFrame) -> Dict[str, Any]:
     active = [z for z in zones if z.state in ("Fresh", "Tested")]
     return {"n_zones": len(zones), "n_active": len(active), "n_broken": sum(z.state == "Broken" for z in zones), "avg_score": (sum(z.densityScore for z in zones) / len(zones) if zones else 0.0)}
 
+
 def realistic_roi(zones: List[Zone], df: pd.DataFrame, rr: float = 5.0, risk_pct: float = 0.5, capital: float = 25000.0, patterns: Optional[List[str]] = None, buffer: float = 0.1, entry_mode: str = "prox", max_hold: int = 40) -> Dict[str, Any]:
     selected = [z for z in zones if not patterns or z.patternType in patterns]
     return {"n_trades": 0, "win_pct": 0.0, "net_roi_pct": 0.0, "sample_zones": len(selected), "risk_pct": risk_pct, "capital": capital, "targetRR": rr}
 
+
 def target_context(zone: Zone, df: Optional[pd.DataFrame] = None, htf_df: Optional[pd.DataFrame] = None, market_df: Optional[pd.DataFrame] = None, vix: Optional[float] = None, spx_ret20: Optional[float] = None) -> Dict[str, Any]:
     return {"score": None, "max": 6, "label": "—", "why": [], "A": None, "B": None, "C": None, "D": None, "E": None, "F": None}
+
 
 def latest_active_zones(zones: List[Zone]) -> List[Zone]:
     return [z for z in zones if z.state in ("Fresh", "Tested")]
 
+
 def get_zone_alerts(zones: List[Zone], price: float) -> List[Zone]:
     return [z for z in latest_active_zones(zones) if min(z.proxVal, z.distVal) <= price <= max(z.proxVal, z.distVal)]
+
 
 def resample_nse_session(df: pd.DataFrame, n_hours: int, session_start="09:15", session_end="15:30") -> pd.DataFrame:
     df = df.sort_index().copy()
@@ -309,6 +361,8 @@ def resample_nse_session(df: pd.DataFrame, n_hours: int, session_start="09:15", 
     for _, day_df in df.groupby(df.index.date):
         day_df = day_df.between_time(session_start, session_end)
         if day_df.empty: continue
-        agg = day_df.resample(f"{n_hours}H", origin="start", label="left", closed="left").agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna(subset=["open"])
+        # --- BUGFIX: pandas 2.2+ में "H" alias deprecated है (भविष्य के वर्ज़न में हटा दिया जाएगा),
+        #     इसलिए lowercase "h" इस्तेमाल किया गया ---
+        agg = day_df.resample(f"{n_hours}h", origin="start", label="left", closed="left").agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna(subset=["open"])
         out_frames.append(agg)
     return pd.concat(out_frames).sort_index() if out_frames else pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
