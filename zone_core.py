@@ -11,6 +11,11 @@ from typing import Any, Dict, List, Optional
 # -----------------------------------------------------------------------------
 # The complete density/HQ score calculation has intentionally been removed.
 # All non-scoring zone-detection, state, risk and trade-level rules are kept.
+# A base is deliberately required to be a boring/ranging candle. This is a
+# hard structural check, not a score bonus and not an exposed setting.
+BASE_BORING_MAX_BODY_PCT = 0.55
+
+
 PINE_DEFAULTS: Dict[str, Any] = {
     # Explicitly changeable through settings(...), scan_zones(...), or
     # scan_zones(..., accountCapital=...).
@@ -289,6 +294,7 @@ class ZoneEngine:
             bear_clv = (leg_in_high - leg_in_close) / leg_in_range
 
             all_base_valid = True
+            all_base_boring = True
             max_base_tr = 0.0
             max_base_body = 0.0
             max_base_high = -1.0
@@ -304,6 +310,14 @@ class ZoneEngine:
                 if base_tr > self.maxBaseAtrMult * self.atr_val[pos_b]:
                     all_base_valid = False
                     break
+
+                base_body_pct = (
+                    abs(self.close[pos_b] - self.open[pos_b]) / base_tr
+                    if base_tr > 0
+                    else 0.0
+                )
+                if base_body_pct > BASE_BORING_MAX_BODY_PCT:
+                    all_base_boring = False
 
                 max_base_tr = max(max_base_tr, base_tr)
                 max_base_body = max(
@@ -443,6 +457,7 @@ class ZoneEngine:
                 and is_leg_out_explosive
                 and is_leg_out_wick_valid
                 and passes_tr_hierarchy
+                and all_base_boring
                 and passes_strict_candle_hierarchy
                 and passes_strict_body_hierarchy
                 and passes_leg_out_close_confirmation
