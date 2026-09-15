@@ -68,9 +68,9 @@ class Zone:
     slVal: float
     tpVal: float
     isDemand: bool
-    # These four fields are retained only for compatibility with older callers.
-    # No score is calculated, no HQ threshold is applied, and they remain blank.
-    densityScore: Optional[int]
+    # Compatibility fields for the existing Streamlit caller. They are numeric
+    # neutral values only; no score is calculated and no HQ threshold is applied.
+    densityScore: int
     isHQ: bool
     patternType: str
     zoneCategory: str
@@ -88,7 +88,7 @@ class Zone:
     zoneBox: Box
     timestamp: object = None
     riskPct: float = float("nan")
-    score10: Optional[float] = None
+    score10: float = 0.0
     baseColourOK: bool = False
     legInVolX: float = float("nan")
     legOutVolX: float = float("nan")
@@ -473,8 +473,9 @@ class ZoneEngine:
                 slVal=sl_val,
                 tpVal=tp_val,
                 isDemand=is_demand_leg_out,
-                # Scoring was removed; these compatibility values are blank.
-                densityScore=None,
+                # Scoring was removed; numeric neutral values prevent legacy
+                # sort/render code from applying unary minus to None.
+                densityScore=0,
                 isHQ=False,
                 patternType=(
                     "RBR"
@@ -509,7 +510,7 @@ class ZoneEngine:
                 ),
                 timestamp=self.df.index[i],
                 riskPct=risk_pct_of_price,
-                score10=None,
+                score10=0.0,
                 baseColourOK=False,
                 legInVolX=(
                     leg_in_vol / self.vol_sma[pos_leg_in]
