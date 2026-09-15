@@ -1,35 +1,34 @@
 """
-zone_core_merged.py — MERGED ENGINE (user-specified 3 special rules)
-====================================================================
-यह file पहले zone_core.py और दूसरे zone_core_v4.py को merge करती है। नियम (user-defined):
+zone_core_merged_fixed.py — PERFORMANCE-FIXED ENGINE
+=====================================================
+यह file आपकी दी हुई `zone_core_merged.py` का ठीक किया हुआ (bug-fixed) version है।
+Logic/behaviour bilkul same रखा गया है (RULE 1, RULE 2, RULE 3 unchanged) —
+सिर्फ़ नीचे दिए गए performance bugs ठीक किए गए हैं:
 
-RULE 1 (TESTED=PROXIMAL):
-    testedLegOutRetracePct = 1.0 (100%) और zone state तब ही "Tested" दिखाए
-    जब price PROXIMAL line को touch करे — अन्यथा "Fresh" रहे।
-    (Switch: testedOnProximal=True. False रखने पर 100%-of-leg-out retrace पर Tested,
-     यानी demand में legOutLow तक आने पर — legacy legOutMidLevel logic।)
+BUG #1 (सबसे बड़ी वजह "बहुत स्लो" होने की):
+    `_HTF_ZONE_CACHE` में key के तौर पर `id(h)` इस्तेमाल हो रहा था।
+    हर `scan_zones()` call पर `_auto_higher_frames()` एक नया DataFrame object
+    बनाता है, इसलिए `id(h)` हर बार अलग आता है => cache कभी hit ही नहीं होता,
+    और हर call पर 8 higher-timeframes (30m..1mo) के लिए पूरा `ZoneEngine().run()`
+    दोबारा (from scratch) चलता है। साथ ही `id()` reuse होने पर गलत zones cache
+    से वापस मिलने का correctness-risk भी था।
+    FIX: content-based fingerprint (len, first/last timestamp, close-checksum)
+    को cache key बनाया — अब cache असल में काम करता है।
 
-RULE 2 (SCAN केवल पहले zone_core.py से):
-    Zone detection/filtering का logic 100% पहले zone_core.py का है (verbatim —
-    वही defaults: legOutTrMult 1.2, maxBaseAtrMult 1.0, legInToBaseSizeMult 2.0 आदि)।
-    v4 की कोई भी scan-शर्त (nextBarMode, legInMaxWickPct, new input filters,
-    MTF reject filters — rejectHtfGap/requireSolidLegOut/requireHtfConfluence)
-    zones को REMOVE/REJECT नहीं करती। *** पहले नियम से बना zone कभी हटता नहीं ***
+BUG #2 (extra overhead):
+    `_auto_higher_frames(df, base_tf)` — जो resampling करके 30m/1h/2h/4h/6h/
+    1d/1wk/1mo frames बनाता है — हर call पर पूरी history पर दोबारा चलता था।
+    FIX: इसके output को भी fingerprint-based module-level cache में रखा गया।
 
-RULE 3 (v4 सिर्फ HQ HIGHLIGHT करे) — UPDATED (user rule v2):
-    HQ निर्धारण में पहली फाइल का score>=90 gate हटा दिया गया है।
-        final isHQ = v4_match (HTF zone confluence overlap >= confluenceOverlap
-                               OR pivot-gap match)
-    HTF जाँच zone के timeframe से >=2x timeframe से ऊपर होती है, और ladder में
-    खासकर daily/weekly/monthly frames शामिल हैं (1wk के लिए भी 1mo जाँच होती है)।
-    पारदर्शिता के लिए हर zone पर ये fields उपलब्ध हैं:
-        isHQ_base     -> केवल पहले फाइल के score-नियम से HQ था क्या (reference only; gate नहीं)
-        isHQ_v4match  -> v4 MTF नियम match हुआ क्या  ==> यही final isHQ है
-        mtf_tf/mtf_overlap (confluence source), pgap_tf (pivot-gap source)
-
-Data note: scan_zones(df) पहले फाइल की तरह tz-aware DatetimeIndex स्वीकार करती है;
-mtfEnabled=True पर base frame को IST-naive normalize किया जाता है (results identical,
-केवल timestamp alignment के लिए) ताकि higher-frame comparison सही रहे।
+BUG #3 (constant-factor slowness):
+    ATR/TR calculation pure-Python loops से हो रहा था:
+      - `_tr_at()` को हर bar के लिए list-comprehension में call किया जाता था
+      - `ZoneEngine._rma()` एक हाथ से लिखा हुआ Python for-loop था
+    यह base engine के अलावा हर higher-timeframe engine पर भी (कुल ~9 बार हर
+    scan_zones() call में) चलता था।
+    FIX: TR को NumPy से vectorize किया, और RMA (Wilder smoothing) को
+    pandas के C-optimized `ewm(adjust=False)` से (SMA-seed रखते हुए) लागू
+    किया — output गणितीय रूप से बिल्कुल identical है, बस बहुत तेज़ है।
 """
 
 import numpy as np
@@ -37,35 +36,32 @@ import pandas as pd
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-# ============================== INPUTS (पहले zone_core.py के भाई values) ==============================
+# ============================== INPUTS (unchanged) ==============================
 PINE_DEFAULTS: Dict[str, Any] = {
     "accountCapital": 25000.0, "riskPct": 0.5, "targetRR": 5.0, "slBufferAtr": 0.1,
     "atrPeriod": 14, "volSmaPeriod": 20, "legOutTrMult": 1.2, "legOutMinTrRatio": 1.0,
     "hqLegOutTrMult": 2.0, "hqLegInAtrMult": 1.5, "maxBaseAtrMult": 1.0, "maxWickPct": 0.30,
     "minBaseCountInput": 1, "maxBaseCountInput": 3, "legInMinAtrMult": 1.0,
     "minClvPct": 0.60, "legInToBaseSizeMult": 2.0,
-    "legInMinBodyPct": 0.55,  # स्क्रीनशॉट के अनुसार (Pine में 0.60 था)
+    "legInMinBodyPct": 0.55,
     "useImbalance": True, "maxImbalanceMult": 1.0, "relaxGapCapOvernight": True,
     "genuineGapBonus": 10, "overnightGapBonus": 15, "rejectOppositeCoverPct": 0.50,
     "minValidScore": 40, "hqScoreThreshold": 90, "legOutBodyHeavyPct": 0.60,
-    "testedLegOutRetracePct": 1.0,   # RULE 1: 90% -> 100% (displayed mid-level = legOutLow)
-    "testedOnProximal": True,        # RULE 1: Tested केवल proximal touch पर (अन्यथा Fresh)
+    "testedLegOutRetracePct": 1.0,
+    "testedOnProximal": True,
     "maxTestedCount": 2,
-    # ---- v4 MTF RULE inputs (RULE 3: केवल HQ highlight; zone remove नहीं) ----
     "mtfEnabled": True,
     "mtfGapAtrMult": 0.25,
     "mtfPivotSwing": 2,
     "pivotGapBonus": True,
-    "confluenceBonus": 15,      # display/reference only — score में जोड़ा नहीं जाता (RULE 2)
-    "confluenceOverlap": 0.5,   # HTF zone overlap threshold for v4-match
-    # ---- v4 keys जो zones को REMOVE करती थीं — merged file में UNUSED (RULE 2) ----
+    "confluenceBonus": 15,
+    "confluenceOverlap": 0.5,
     "rejectHtfGap": False, "requireSolidLegOut": False, "rejectSolidLegIn": False,
     "requireHtfConfluence": False, "mtfLegSolidPct": 0.65,
 }
 
 REQUIRED_COLUMNS = ("open", "high", "low", "close", "volume")
 
-# HTF ladder: zone के TF से >=2x ऊपर के timeframes — daily/weekly/monthly खासकर शामिल
 TF_ORDER = ["15m", "30m", "1h", "2h", "4h", "6h", "1d", "1wk", "1mo"]
 TF_LADDER = {
     "15m": ["30m", "1h", "2h", "4h", "6h", "1d", "1wk", "1mo"],
@@ -75,7 +71,7 @@ TF_LADDER = {
     "4h": ["6h", "1d", "1wk", "1mo"],
     "6h": ["1d", "1wk", "1mo"],
     "1d": ["1wk", "1mo"],
-    "1wk": ["1mo"],   # 2x से ऊपर = monthly भी check (user rule v2)
+    "1wk": ["1mo"],
     "1mo": [],
 }
 
@@ -98,24 +94,43 @@ class Zone:
     score10: float = float("nan"); baseColourOK: bool = False; legInVolX: float = float("nan")
     legOutVolX: float = float("nan"); retestVolX: float = float("nan")
     entryStatus: str = ""; entryPrice: float = 0.0; gapToLegIn: float = 0.0
-    # ---- RULE 3 fields (v4 HQ highlight) ----
-    isHQ_base: bool = False           # पहले फाइल के score>=90 नियम से HQ था?
-    isHQ_v4match: bool = False        # v4 MTF नियम (confluence/pivot-gap) match हुआ?
-    mtf_tf: str = ""                  # confluence किस HTF से मिला
-    mtf_overlap: float = float("nan") # HTF zone से overlap ratio
-    pgap_tf: str = ""                 # pivot-gap किस HTF से मिला
+    isHQ_base: bool = False
+    isHQ_v4match: bool = False
+    mtf_tf: str = ""
+    mtf_overlap: float = float("nan")
+    pgap_tf: str = ""
 
 
-# ============================== v4 helpers (MTF machinery — unchanged) ==============================
+# ============================== FIXED helpers ==============================
 def rma(series: np.ndarray, length: int) -> np.ndarray:
+    """Wilder's RMA — अब pandas के C-optimized ewm() से vectorized (BUG #3 fix)।
+    Output पुराने Python-loop version जैसा ही (SMA-seed + recursive) है, बस तेज़।"""
     n = len(series)
     out = np.full(n, np.nan)
     if n < length:
         return out
-    out[length - 1] = np.mean(series[:length])
-    for i in range(length, n):
-        out[i] = (series[i] - out[i - 1]) / length + out[i - 1]
+    seed = np.mean(series[:length])
+    tail = series[length:]
+    if len(tail) == 0:
+        out[length - 1] = seed
+        return out
+    alpha = 1.0 / length
+    s = pd.Series(np.concatenate(([seed], tail)))
+    ema = s.ewm(alpha=alpha, adjust=False).mean().to_numpy()
+    out[length - 1:] = ema
     return out
+
+
+def _vectorized_true_range(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.ndarray:
+    """पहले हर bar के लिए Python function call (`_tr_at`) से TR निकाला जाता था।
+    अब पूरी series एक साथ NumPy से (BUG #3 fix)। i=0 के लिए result वैसा ही
+    रहता है क्योंकि close[0] हमेशा [low[0], high[0]] के अंदर होता है।"""
+    prev_close = np.empty_like(close)
+    prev_close[0] = close[0]
+    prev_close[1:] = close[:-1]
+    rng = high - low
+    tr = np.maximum(rng, np.maximum(np.abs(high - prev_close), np.abs(low - prev_close)))
+    return tr
 
 
 def _prep_frame(df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
@@ -160,7 +175,39 @@ def resample_nse_session(df: pd.DataFrame, n_hours: int, session_start="09:15", 
     return pd.concat(out_frames).sort_index() if out_frames else pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
 
+def _frame_fingerprint(h: pd.DataFrame) -> tuple:
+    """Content-based fingerprint — id(h) की जगह (BUG #1/#2 fix)। दो अलग calls
+    में अगर डेटा वही है तो fingerprint भी वही रहेगा, चाहे DataFrame object नया
+    (नया id()) ही क्यों न बना हो — इसीलिए cache असल में hit करता है।"""
+    n = len(h)
+    if n == 0:
+        return (0, 0, 0, 0.0, 0.0)
+    idx = h.index
+    first_ts = int(idx[0].value)
+    last_ts = int(idx[-1].value)
+    close = h["close"].to_numpy(dtype=float)
+    step = max(1, n // 64)
+    sample = close[::step]
+    checksum = float(np.nansum(sample))
+    last_close = float(close[-1])
+    return (n, first_ts, last_ts, round(checksum, 4), round(last_close, 6))
+
+
+def _df_fingerprint(df: pd.DataFrame) -> tuple:
+    return _frame_fingerprint(df)
+
+
+_HIGHER_FRAMES_CACHE: Dict[Any, Any] = {}
+
+
 def _auto_higher_frames(df: pd.DataFrame, base_tf: str) -> Dict[str, pd.DataFrame]:
+    """FIX: base df+base_tf के fingerprint पर cached — इसलिए बार-बार वही data
+    resample नहीं होता (BUG #2)।"""
+    cache_key = (_df_fingerprint(df), base_tf)
+    cached = _HIGHER_FRAMES_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     out: Dict[str, pd.DataFrame] = {}
     agg_dict = {"open": "first", "high": "max", "low": "min", "close": "last"}
     if "volume" in df.columns:
@@ -187,6 +234,10 @@ def _auto_higher_frames(df: pd.DataFrame, base_tf: str) -> Dict[str, pd.DataFram
             r = None
         if r is not None and len(r) >= 6:
             out[tgt] = r
+
+    _HIGHER_FRAMES_CACHE[cache_key] = out
+    if len(_HIGHER_FRAMES_CACHE) > 256:
+        _HIGHER_FRAMES_CACHE.pop(next(iter(_HIGHER_FRAMES_CACHE)))
     return out
 
 
@@ -213,6 +264,7 @@ class MtfContext:
         swing = int(params.get("mtfPivotSwing", 2))
         gap_mult = float(params.get("mtfGapAtrMult", 0.25))
         engine_config = {k: v for k, v in params.items() if k in PINE_DEFAULTS}
+        engine_config_key = str(sorted(engine_config.items()))
 
         for htf in self.ladder:
             h = _prep_frame(higher_frames[htf])
@@ -224,8 +276,7 @@ class MtfContext:
             c = h["close"].to_numpy(float)
             hm = h.index.astype(np.int64) // 10**6
             n = len(h)
-            pc = np.concatenate([[c[0]], c[:-1]])
-            tr = np.maximum(h_ - l, np.maximum(np.abs(h_ - pc), np.abs(l - pc)))
+            tr = _vectorized_true_range(h_, l, c)
             atr = rma(tr, 14)
 
             gap_flag = np.zeros(n, bool)
@@ -265,13 +316,16 @@ class MtfContext:
             self.pgap[htf] = (hm.to_numpy(), l, h_, pairs)
 
             if len(h) >= 30:
-                key = (id(h), str(engine_config))
+                # ===== BUG #1 FIX: id(h) की जगह content-fingerprint से cache key =====
+                key = (htf, _frame_fingerprint(h), engine_config_key)
                 cached = _HTF_ZONE_CACHE.get(key)
                 if cached is None:
                     sub = ZoneEngine(h, mtf=None, **engine_config).run()
                     zs = [(z.createdBarIndex, bool(z.isDemand), z.proxVal, z.distVal) for z in sub if z.createdBarIndex < len(h)]
                     cached = (h, zs)
                     _HTF_ZONE_CACHE[key] = cached
+                    if len(_HTF_ZONE_CACHE) > 512:
+                        _HTF_ZONE_CACHE.pop(next(iter(_HTF_ZONE_CACHE)))
                 self.conf[htf] = (hm.to_numpy(), l, h_, cached[1])
 
         self.half = None
@@ -345,7 +399,7 @@ class MtfContext:
         return "", float("nan")
 
 
-# ============================== ENGINE (पहले zone_core.py का logic — verbatim) ==============================
+# ============================== ENGINE (logic unchanged, indicators vectorized) ==============================
 class ZoneEngine:
     def __init__(self, df: pd.DataFrame, mtf: Optional[MtfContext] = None, **kwargs):
         if df is None or len(df) == 0:
@@ -383,6 +437,8 @@ class ZoneEngine:
         self._prepare_indicators()
 
     def _tr_at(self, pos: int) -> float:
+        # अब केवल reference/compat के लिए रखा गया है (BUG #3 fix से main path
+        # पर अब यह call ही नहीं होता — देखें _prepare_indicators)
         if pos < 0: return np.nan
         hi, lo = self.high[pos], self.low[pos]
         rng = hi - lo
@@ -392,17 +448,14 @@ class ZoneEngine:
         return rng
 
     def _rma(self, series: np.ndarray, length: int) -> np.ndarray:
-        n = len(series)
-        result = np.full(n, np.nan)
-        for i in range(length - 1, n):
-            if np.isnan(result[i - 1]) if i > 0 else True:
-                result[i] = np.mean(series[i - length + 1: i + 1])
-            else:
-                result[i] = (series[i] - result[i - 1]) / length + result[i - 1]
-        return result
+        # BUG #3 FIX: पुराना हाथ से लिखा Python for-loop हटाकर module-level
+        # vectorized rma() (pandas ewm आधारित) इस्तेमाल किया — output identical।
+        return rma(series, length)
 
     def _prepare_indicators(self):
-        self.current_tr = np.array([self._tr_at(i) for i in range(self.n)])
+        # BUG #3 FIX: list-comprehension से हर bar पर _tr_at() call करने की
+        # जगह पूरी series को एक साथ NumPy से vectorize किया।
+        self.current_tr = _vectorized_true_range(self.high, self.low, self.close)
         self.atr_val = self._rma(self.current_tr, self.atrPeriod)
         self.vol_sma = self.df["volume"].rolling(self.volSmaPeriod).mean().to_numpy()
 
@@ -534,7 +587,6 @@ class ZoneEngine:
 
             if densityScore < self.minValidScore: continue
 
-            # ===== पहले फाइल का HQ नियम (score >= hqScoreThreshold) — यही baseHQ =====
             isHQ_base = densityScore >= self.hqScoreThreshold
             zoneFoundOnThisBar = True
 
@@ -554,8 +606,6 @@ class ZoneEngine:
                 if checked >= 11: break
             if isDuplicate: continue
 
-            # ===== RULE 3: v4 MTF match — केवल HQ HIGHLIGHT के लिए (score/scan पर कोई असर नहीं,
-            #     यह check minScore & duplicate filters के बाद चलता है; zone कभी remove नहीं होता) =====
             mtf_tf, mtf_ov, pgap_tf = "", float("nan"), ""
             if self.mtf is not None:
                 t_ms = int(self.time_ms[i])
@@ -567,7 +617,6 @@ class ZoneEngine:
                     if pg_tf:
                         pgap_tf = pg_tf
             isHQ_v4match = bool(mtf_tf or pgap_tf)
-            # RULE 3 v2: score>=90 gate हटाया — final isHQ = सिर्फ v4 MTF match
             isHQ = bool(isHQ_v4match) if self.mtf is not None else bool(isHQ_base)
 
             boxBorderColor, boxFillColor = ("green", ("green", 0.15)) if isDemandLegOut else ("red", ("red", 0.15))
@@ -589,9 +638,6 @@ class ZoneEngine:
             self.active_zones.append(newZone)
 
     def _update_zone_states(self, i):
-        """RULE 1: Tested तभी जब PROXIMAL line touch हो (testedOnProximal=True, default) —
-        अन्यथा Fresh. testedOnProximal=False रखने पर legacy legOutMidLevel
-        (अब 100% retrace = legOutLow/legOutHigh) पर Tested."""
         if not self.active_zones: return
         lo_t, hi_t = self.low[i], self.high[i]
 
@@ -635,22 +681,19 @@ def scan_zones(df: pd.DataFrame, params: Optional[Dict[str, Any]] = None,
                half_df: Optional[pd.DataFrame] = None,
                higher_frames: Optional[Dict[str, pd.DataFrame]] = None,
                base_tf: Optional[str] = None) -> List[Zone]:
-    """पहले फाइल जैसा signature + v4 जैसा MTF plumbing.
-    mtfEnabled=True (default) पर higher frames auto-derive होकर केवल HQ highlight होते हैं;
-    mtfEnabled=False करने पर output पहले zone_core.py के बराबर (modulo RULE 1 tested-logic)।"""
     config = settings(**(params or {}))
     engine_config = {key: value for key, value in config.items() if key in PINE_DEFAULTS}
 
     mtf = None
     if config.get("mtfEnabled"):
-        work = _prep_frame(df)  # IST-naive normalize (results identical; sirf MTF timestamp alignment)
+        work = _prep_frame(df)
         if work is None or len(work) == 0:
             raise ValueError("इनपुट DataFrame खाली है।")
         df = work
         if base_tf is None:
             base_tf = infer_tf(df)
         if higher_frames is None:
-            higher_frames = _auto_higher_frames(df, base_tf)
+            higher_frames = _auto_higher_frames(df, base_tf)  # अब fingerprint-cached (BUG #2 fix)
         mtf = MtfContext(df, half_df, higher_frames, base_tf, engine_config)
 
     return ZoneEngine(df, mtf=mtf, **engine_config).run()
