@@ -14,7 +14,9 @@ PINE_DEFAULTS: Dict[str, Any] = {
     "useImbalance": True, "maxImbalanceMult": 1.0, "relaxGapCapOvernight": True,
     "genuineGapBonus": 10, "overnightGapBonus": 15, "rejectOppositeCoverPct": 0.50,
     "minValidScore": 40, "hqScoreThreshold": 90, "legOutBodyHeavyPct": 0.60,
-    "testedLegOutRetracePct": 0.90,  # स्क्रीनशॉट के अनुसार
+    # "Tested" अब सीधे zone की असली proximal line (proxVal) टच होने पर तय होता है (नीचे _update_zone_states देखें)।
+    # यह पैरामीटर केवल legOutMidLevel (जानकारी/चार्ट प्रयोजन) के लिए रखा गया है, 100% यानी पूर्ण retrace = proxVal के बराबर।
+    "testedLegOutRetracePct": 1.00,
     "maxTestedCount": 2,
 }
 
@@ -189,6 +191,15 @@ class ZoneEngine:
 
             if not (isDemandLegOut or isSupplyLegOut): continue
 
+            # ---- नया नियम (नियम/शर्त बिना किसी बदलाव के, केवल एक अतिरिक्त फ़िल्टर जोड़ा गया) ----
+            # अगर leg-out कैंडल की पूरी रेंज (wick सहित हाई-लो) ने बेस कैंडल/कैंडल्स की पूरी रेंज को
+            # पूर्ण रूप से ढक (engulf) लिया है, तो यह एक अमान्य ज़ोन है (जैसे APOLLOHOSP 8912.50 सप्लाई ज़ोन)।
+            # ऐसे ज़ोन को स्कैन ही नहीं किया जाएगा।
+            legOutFullyEngulfsBase = (legOutHigh >= maxBaseHigh) and (legOutLow <= minBaseLow)
+            if legOutFullyEngulfsBase:
+                continue
+            # ---- नया नियम समाप्त ----
+
             isLegOutExplosive = legOutTR >= (self.legOutTrMult * self.atr_val[pos_legOut])
             isLegOutWickValid = self._wick_pct(i, legOutIdx) <= self.maxWickPct
             passesTRHierarchy = (legOutTR >= self.legOutMinTrRatio * legInTR) and (legInTR > maxBaseTR)
@@ -286,22 +297,25 @@ class ZoneEngine:
         if not self.live_zones: return
         lo_t, hi_t = self.low[i], self.high[i]
 
+        # नोट: "Tested" अब z.proxVal (base कैंडल की असली proximal line/ज़ोन बॉक्स का निकटतम किनारा)
+        # को टच करने पर ही सेट होता है — leg-out कैंडल के अनुमानित retracement लेवल पर नहीं।
+        # इससे झूठे/जल्दी "Tested" सिग्नल खत्म होते हैं और लॉजिक तेज़ + सटीक बनता है।
         for k in range(len(self.live_zones) - 1, -1, -1):
             z = self.live_zones[k]
             if z.state == "Fresh":
                 if z.isDemand:
                     if lo_t <= z.distVal: z.state = "Broken"
-                    elif lo_t <= z.legOutMidLevel: z.state, z.touchCount = "Tested", z.touchCount + 1
+                    elif lo_t <= z.proxVal: z.state, z.touchCount = "Tested", z.touchCount + 1
                 else:
                     if hi_t >= z.distVal: z.state = "Broken"
-                    elif hi_t >= z.legOutMidLevel: z.state, z.touchCount = "Tested", z.touchCount + 1
+                    elif hi_t >= z.proxVal: z.state, z.touchCount = "Tested", z.touchCount + 1
             elif z.state == "Tested":
                 if z.isDemand:
                     if lo_t <= z.distVal: z.state = "Broken"
-                    elif lo_t <= z.legOutMidLevel: z.touchCount += 1
+                    elif lo_t <= z.proxVal: z.touchCount += 1
                 else:
                     if hi_t >= z.distVal: z.state = "Broken"
-                    elif hi_t >= z.legOutMidLevel: z.touchCount += 1
+                    elif hi_t >= z.proxVal: z.touchCount += 1
 
             if z.state == "Tested" and z.touchCount > self.maxTestedCount: 
                 z.state = "Broken"
@@ -366,4 +380,3 @@ def resample_nse_session(df: pd.DataFrame, n_hours: int, session_start="09:15", 
         out_frames.append(agg)
         
     return pd.concat(out_frames).sort_index() if out_frames else pd.DataFrame(columns=list(agg_dict.keys()))
-
