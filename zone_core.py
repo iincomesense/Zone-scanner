@@ -339,8 +339,12 @@ class ZoneEngine:
             if leg_out_fully_engulfs_base:
                 continue
 
+            # Strict candle-size hierarchy: a valid setup must contain a
+            # real base, then a larger leg-in, then a still larger leg-out.
+            # This is an additional hard rejection only; all other rules stay
+            # unchanged.
             is_leg_out_explosive = (
-                leg_out_tr >= self.legOutTrMult * self.atr_val[pos_leg_out]
+                leg_out_tr > self.legOutTrMult * self.atr_val[pos_leg_out]
             )
             is_leg_out_wick_valid = (
                 self._wick_pct(i, leg_out_idx) <= self.maxWickPct
@@ -348,6 +352,9 @@ class ZoneEngine:
             passes_tr_hierarchy = (
                 leg_out_tr >= self.legOutMinTrRatio * leg_in_tr
                 and leg_in_tr > max_base_tr
+            )
+            passes_strict_candle_hierarchy = (
+                max_base_tr < leg_in_tr < leg_out_tr
             )
 
             leg_out_volume_missing = (
@@ -411,6 +418,7 @@ class ZoneEngine:
                 and is_leg_out_explosive
                 and is_leg_out_wick_valid
                 and passes_tr_hierarchy
+                and passes_strict_candle_hierarchy
                 and passes_volume
                 and has_imbalance
             ):
