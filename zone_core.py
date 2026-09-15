@@ -288,6 +288,7 @@ class ZoneEngine:
 
             all_base_valid = True
             max_base_tr = 0.0
+            max_base_body = 0.0
             max_base_high = -1.0
             min_base_low = 1_000_000_000.0
 
@@ -303,6 +304,10 @@ class ZoneEngine:
                     break
 
                 max_base_tr = max(max_base_tr, base_tr)
+                max_base_body = max(
+                    max_base_body,
+                    abs(self.close[pos_b] - self.open[pos_b]),
+                )
                 max_base_high = max(max_base_high, self.high[pos_b])
                 min_base_low = min(min_base_low, self.low[pos_b])
 
@@ -325,6 +330,8 @@ class ZoneEngine:
             leg_out_close = self.close[pos_leg_out]
             leg_out_open = self.open[pos_leg_out]
             leg_out_vol = self.volume[pos_leg_out]
+            leg_in_body_size = abs(leg_in_close - self.open[pos_leg_in])
+            leg_out_body_size = abs(leg_out_close - leg_out_open)
             is_demand_leg_out = self._is_bull(i, leg_out_idx)
             is_supply_leg_out = self._is_bear(i, leg_out_idx)
 
@@ -355,6 +362,22 @@ class ZoneEngine:
             )
             passes_strict_candle_hierarchy = (
                 max_base_tr < leg_in_tr < leg_out_tr
+            )
+            # Also require the visible candle bodies to follow the same
+            # hierarchy. This prevents a large-wick candle from being
+            # incorrectly treated as a larger leg-out only because its TR is
+            # large.
+            passes_strict_body_hierarchy = (
+                max_base_body < leg_in_body_size < leg_out_body_size
+            )
+
+            # A leg-out is complete only when its close has broken the base
+            # edge. A close merely beyond leg-in is not enough to confirm the
+            # base-to-leg-out transition.
+            passes_leg_out_close_confirmation = (
+                leg_out_close > max_base_high
+                if is_demand_leg_out
+                else leg_out_close < min_base_low
             )
 
             leg_out_volume_missing = (
@@ -419,6 +442,8 @@ class ZoneEngine:
                 and is_leg_out_wick_valid
                 and passes_tr_hierarchy
                 and passes_strict_candle_hierarchy
+                and passes_strict_body_hierarchy
+                and passes_leg_out_close_confirmation
                 and passes_volume
                 and has_imbalance
             ):
@@ -547,6 +572,12 @@ class ZoneEngine:
         for k in range(len(self.live_zones) - 1, -1, -1):
             zone = self.live_zones[k]
 
+            # A zone cannot be Tested by the same candle that created it.
+            # The leg-out candle is the formation candle, not a retest.
+            if i <= zone.createdBarIndex:
+                zone.zoneBox.set_right(i + 15)
+                continue
+
             if zone.state == "Fresh":
                 if zone.isDemand:
                     if lo_t <= zone.distVal:
@@ -589,7 +620,11 @@ class ZoneEngine:
     def run(self) -> List[Zone]:
         min_bar = max(self.atrPeriod, self.maxBaseCount + 3, 11)
         for i in range(min_bar, self.n):
-            if not np.isnan(self.atr_val[i]):
+            # Do not create a zone on the last available candle. In live data
+            # that candle may still be forming, so its leg-in/base/leg-out
+            # structure is not confirmed yet. Existing zones are still
+            # allowed to receive a retest/break update on that candle.
+            if i < self.n - 1 and not np.isnan(self.atr_val[i]):
                 self._scan_bar(i)
             self._update_zone_states(i)
         return self.active_zones
