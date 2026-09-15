@@ -35,7 +35,9 @@ PINE_DEFAULTS: Dict[str, Any] = {
     "relaxGapCapOvernight": True,
     "rejectOppositeCoverPct": 0.50,
     "testedLegOutRetracePct": 1.00,
-    "maxTestedCount": 2,
+    # Keep a zone after only its first retest. The second proximal touch
+    # makes it Broken/removed.
+    "maxTestedCount": 1,
 }
 
 
