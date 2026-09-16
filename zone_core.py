@@ -34,6 +34,9 @@ PINE_DEFAULTS: Dict[str, Any] = {
     "legInMinAtrMult": 1.0,
     "minClvPct": 0.60,
     "legInToBaseSizeMult": 2.0,
+    # Wickless-body hierarchy: leg-out body must be strictly larger than
+    # leg-in body by this multiplier. 1.0 means simply greater-than.
+    "legOutToLegInBodyMult": 1.0,
     "legInMinBodyPct": 0.55,
     "useImbalance": True,
     "maxImbalanceMult": 1.0,
@@ -384,7 +387,9 @@ class ZoneEngine:
             # incorrectly treated as a larger leg-out only because its TR is
             # large.
             passes_strict_body_hierarchy = (
-                max_base_body < leg_in_body_size < leg_out_body_size
+                max_base_body < leg_in_body_size
+                and leg_out_body_size
+                > self.legOutToLegInBodyMult * leg_in_body_size
             )
 
             # A leg-out is complete only when its close has broken the base
