@@ -16,6 +16,49 @@ import zone_core
 import zdata
 
 
+DEFAULT_EOD_UPPER_PCT = 10.0
+DEFAULT_EOD_LOWER_PCT = 10.0
+
+# Canonical names accepted by the scanner. Additional custom timeframes may
+# still be passed through if zdata supports them.
+TIMEFRAME_OPTIONS = (
+    "5m", "10m", "15m", "30m", "1h", "2h", "4h", "6h",
+    "1D", "1W", "1M", "75m", "8h", "10h", "12h", "20h", "2D", "3M",
+)
+
+
+def normalize_scan_timeframe(value):
+    raw = str(value).strip()
+    if raw in TIMEFRAME_OPTIONS:
+        return raw
+
+    aliases = {
+        "5min": "5m", "5mins": "5m", "5minute": "5m",
+        "10min": "10m", "10mins": "10m", "10minute": "10m",
+        "15min": "15m", "15mins": "15m", "15minute": "15m",
+        "30min": "30m", "30mins": "30m", "30minute": "30m",
+        "1hour": "1h", "1hr": "1h", "hourly": "1h",
+        "2hour": "2h", "2hr": "2h",
+        "4hour": "4h", "4hr": "4h",
+        "6hour": "6h", "6hr": "6h",
+        "daily": "1D", "day": "1D", "1day": "1D",
+        "weekly": "1W", "week": "1W", "1week": "1W",
+        "monthly": "1M", "month": "1M", "1month": "1M",
+    }
+    key = raw.lower().replace(" ", "")
+    return aliases.get(key, raw)
+
+
+def _nonnegative_pct(value, name):
+    try:
+        value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a non-negative number") from exc
+    if value < 0 or not pd.notna(value):
+        raise ValueError(f"{name} must be a non-negative number")
+    return value
+
+
 # --------------------------------------------------------------------------- #
 # Small process-level caches so a universe scan reuses base bars / OI / quotes #
 # --------------------------------------------------------------------------- #
@@ -27,6 +70,7 @@ _scan_cache = {}          # (symbol, tf, recommended, strict, capital, stamp) ->
 _ctx_cache = {}           # market context with TTL
 _ctx_lock = threading.Lock()
 HTF_OF = {
+    "5m": "15m",
     "10m": "1h",
     "15m": "1h",
     "30m": "2h",
@@ -34,9 +78,16 @@ HTF_OF = {
     "2h": "1D",
     "4h": "1D",
     "6h": "1D",
+    "75m": "4h",
+    "8h": "1D",
+    "10h": "1D",
+    "12h": "1D",
+    "20h": "1D",
     "1D": "1W",
     "1W": "1M",
     "1M": None,
+    "2D": "1W",
+    "3M": None,
 }
 
 
@@ -229,22 +280,39 @@ def oi_bias(symbol, is_demand):
 # --------------------------------------------------------------------------- #
 # EOD band helpers                                                             #
 # --------------------------------------------------------------------------- #
-def eod_band(symbol):
-    """Return the last completed daily-candle band or None."""
+def eod_band(
+    symbol,
+    upper_pct=DEFAULT_EOD_UPPER_PCT,
+    lower_pct=DEFAULT_EOD_LOWER_PCT,
+):
+    """Return the completed-daily-candle band with configurable percentages.
+
+    Example: upper_pct=10 and lower_pct=10 means daily high +10% and daily
+    low -10%. The two percentages are independent.
+    """
+    upper_pct = _nonnegative_pct(upper_pct, "upper_pct")
+    lower_pct = _nonnegative_pct(lower_pct, "lower_pct")
     high, low = _daily_hl(symbol)
     if high is None or low is None:
         return None
     return {
         "hi": high,
         "lo": low,
-        "eod_hi": high * 1.10,
-        "eod_lo": low * 0.90,
+        "upper_pct": upper_pct,
+        "lower_pct": lower_pct,
+        "eod_hi": high * (1.0 + upper_pct / 100.0),
+        "eod_lo": low * (1.0 - lower_pct / 100.0),
     }
 
 
-def eod_zone_filter(zones, symbol):
-    """Keep zones overlapping the EOD band."""
-    band = eod_band(symbol)
+def eod_zone_filter(
+    zones,
+    symbol,
+    upper_pct=DEFAULT_EOD_UPPER_PCT,
+    lower_pct=DEFAULT_EOD_LOWER_PCT,
+):
+    """Keep zones overlapping the configurable EOD band."""
+    band = eod_band(symbol, upper_pct, lower_pct)
     if band is None:
         return zones, None
 
@@ -276,18 +344,28 @@ def scan(
     because zone scoring has been removed.
     """
     del min_score
+    timeframe = normalize_scan_timeframe(timeframe)
 
     df = zdata.load_zone_frame(symbol, timeframe, start=start)
     cache_key = None
     if start is None and lookback_months is None:
-        cfg = zdata.TF_CONFIG.get(timeframe) or zdata.TF_CONFIG.get(
-            zdata.normalize_tf(timeframe)
-        )
-        with zdata._BASE_LOCK:
-            stamp = zdata._BASE_CACHE.get(
-                (symbol, cfg["interval"], cfg["period"]),
-                (None,),
-            )[0]
+        cfg = zdata.TF_CONFIG.get(timeframe)
+        if cfg is None:
+            try:
+                cfg = zdata.TF_CONFIG.get(zdata.normalize_tf(timeframe))
+            except Exception:
+                cfg = None
+
+        if cfg is not None:
+            with zdata._BASE_LOCK:
+                stamp = zdata._BASE_CACHE.get(
+                    (symbol, cfg["interval"], cfg["period"]),
+                    (None,),
+                )[0]
+        else:
+            # Custom timeframe may be supported by load_zone_frame even when
+            # it is not present in the optional cache configuration.
+            stamp = None
 
         capital_key = (
             None if accountCapital is None else float(accountCapital)
@@ -366,12 +444,17 @@ def scan(
 # Universe scan                                                                #
 # --------------------------------------------------------------------------- #
 def scan_universe_zones(
-    timeframes=("10m", "15m", "1h", "2h", "4h", "6h", "1D", "1W", "1M"),
+    timeframes=(
+        "5m", "10m", "15m", "30m", "1h", "2h", "4h", "6h",
+        "1D", "1W", "1M",
+    ),
     min_score=0,
     recommended=True,
     strict=False,
     active_only=False,
     eod_filter=False,
+    eod_upper_pct=DEFAULT_EOD_UPPER_PCT,
+    eod_lower_pct=DEFAULT_EOD_LOWER_PCT,
     symbols=None,
     accountCapital=None,
 ):
@@ -383,6 +466,10 @@ def scan_universe_zones(
     """
     import options as _opt
     import tv as _tv
+
+    timeframes = tuple(normalize_scan_timeframe(tf) for tf in timeframes)
+    eod_upper_pct = _nonnegative_pct(eod_upper_pct, "eod_upper_pct")
+    eod_lower_pct = _nonnegative_pct(eod_lower_pct, "eod_lower_pct")
 
     recommendation_patterns = zone_core.recommended_trade_setup(
         accountCapital=accountCapital
@@ -408,12 +495,13 @@ def scan_universe_zones(
 
     def _scan_symbol(sym):
         output = []
-        eod_lo = eod_hi = None
-        if eod_filter:
-            high, low = _daily_hl(sym)
-            if high is not None and low is not None:
-                eod_hi = high * 1.10
-                eod_lo = low * 0.90
+        band = (
+            eod_band(sym, eod_upper_pct, eod_lower_pct)
+            if eod_filter
+            else None
+        )
+        eod_lo = band["eod_lo"] if band else None
+        eod_hi = band["eod_hi"] if band else None
 
         links = _opt.deep_links(sym)
         chain = links[0]["url"] if links else ""
@@ -605,6 +693,8 @@ def scan_universe(
     recommended=True,
     strict=False,
     eod_filter=False,
+    eod_upper_pct=DEFAULT_EOD_UPPER_PCT,
+    eod_lower_pct=DEFAULT_EOD_LOWER_PCT,
     symbols=None,
     accountCapital=None,
 ):
@@ -614,6 +704,10 @@ def scan_universe(
     """
     import options as _opt
     import tv as _tv
+
+    timeframes = tuple(normalize_scan_timeframe(tf) for tf in timeframes)
+    eod_upper_pct = _nonnegative_pct(eod_upper_pct, "eod_upper_pct")
+    eod_lower_pct = _nonnegative_pct(eod_lower_pct, "eod_lower_pct")
 
     rows = []
     universe = list(symbols) if symbols else list(zdata.FUT_STOCKS)
@@ -629,6 +723,14 @@ def scan_universe(
                     strict=strict,
                     accountCapital=accountCapital,
                 )
+                if eod_filter:
+                    zones, _ = eod_zone_filter(
+                        zones,
+                        sym,
+                        eod_upper_pct=eod_upper_pct,
+                        eod_lower_pct=eod_lower_pct,
+                    )
+
                 last = (
                     float(df["close"].iloc[-1])
                     if df is not None and len(df)
