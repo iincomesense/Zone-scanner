@@ -117,17 +117,41 @@ def _hi(text):
     return str(text)
 
 
-LIVE_TFS = ["10m", "15m", "30m", "75m", "1h", "2h", "4h"]
-STABLE_TFS = ["6h", "8h", "1D", "1W", "1M"]
+# Canonical timeframe options shown in the sidebar. The first group is the
+# requested default set; the extra entries remain available for extension.
+TIMEFRAME_OPTIONS = [
+    "5m", "10m", "15m", "30m", "1h", "2h", "4h", "6h",
+    "1D", "1W", "1M",
+    "75m", "8h", "10h", "12h", "20h", "2D", "3M",
+]
+DEFAULT_SCAN_TFS = [
+    "5m", "10m", "15m", "30m", "1h", "2h", "4h", "6h",
+    "1D", "1W", "1M",
+]
+LIVE_TFS = {
+    "5m", "10m", "15m", "30m", "1h", "2h", "4h", "6h",
+    "75m", "8h", "10h", "12h", "20h",
+}
+STABLE_TFS = {"1D", "1W", "1M", "2D", "3M"}
 TF_LABEL = {
+    "5m": "5 Min",
     "10m": "10 Min",
     "15m": "15 Min",
+    "30m": "30 Min",
     "1h": "1 Hour",
     "2h": "2 Hours",
     "4h": "4 Hours",
+    "6h": "6 Hours",
+    "75m": "75 Min",
+    "8h": "8 Hours",
+    "10h": "10 Hours",
+    "12h": "12 Hours",
+    "20h": "20 Hours",
     "1D": "Daily",
     "1W": "Weekly",
     "1M": "Monthly",
+    "2D": "2 Days",
+    "3M": "3 Months",
 }
 
 
@@ -270,6 +294,8 @@ def load_universe_live(
     strict,
     eod_filter,
     symbols_tuple,
+    eod_upper_pct=10.0,
+    eod_lower_pct=10.0,
     account_capital=DEFAULT_ACCOUNT_CAPITAL,
 ):
     try:
@@ -283,6 +309,8 @@ def load_universe_live(
                 "strict": strict,
                 "active_only": False,
                 "eod_filter": eod_filter,
+                "eod_upper_pct": eod_upper_pct,
+                "eod_lower_pct": eod_lower_pct,
                 "symbols": list(symbols_tuple) if symbols_tuple else None,
             },
             account_capital=account_capital,
@@ -300,6 +328,8 @@ def load_universe_stable(
     eod_filter,
     symbols_tuple,
     day_key,
+    eod_upper_pct=10.0,
+    eod_lower_pct=10.0,
     account_capital=DEFAULT_ACCOUNT_CAPITAL,
 ):
     try:
@@ -313,6 +343,8 @@ def load_universe_stable(
                 "strict": strict,
                 "active_only": False,
                 "eod_filter": eod_filter,
+                "eod_upper_pct": eod_upper_pct,
+                "eod_lower_pct": eod_lower_pct,
                 "symbols": list(symbols_tuple) if symbols_tuple else None,
             },
             account_capital=account_capital,
@@ -578,25 +610,42 @@ if scan_all:
     universe_timeframes = (
         st.sidebar.multiselect(
             "Timeframes",
-            ["10m", "15m", "1h", "2h", "4h", "1D", "1W", "1M"],
-            default=["15m", "1h", "4h", "1D"],
+            TIMEFRAME_OPTIONS,
+            default=DEFAULT_SCAN_TFS,
         )
-        or ["15m", "1h", "4h", "1D"]
+        or list(DEFAULT_SCAN_TFS)
     )
     live_selected = [tf for tf in universe_timeframes if tf in LIVE_TFS]
     stable_selected = [tf for tf in universe_timeframes if tf in STABLE_TFS]
-    eod_filter = st.sidebar.toggle("EOD band filter", value=True)
     symbol, timeframe = "RELIANCE.NS", "4h"
 else:
     selected_universe = None
     universe_timeframes = []
     live_selected = []
     stable_selected = []
-    eod_filter = True
     symbol = st.sidebar.text_input("Symbol", value="RELIANCE.NS")
     timeframe = st.sidebar.selectbox(
-        "Timeframe", ["15m", "1h", "4h", "1D"], index=2
+        "Timeframe", TIMEFRAME_OPTIONS, index=TIMEFRAME_OPTIONS.index("1h")
     )
+
+# EOD band settings apply to universe scans. Both sides are independently
+# changeable; the default remains 10% above the daily high and 10% below the
+# daily low.
+eod_filter = st.sidebar.toggle("EOD band filter", value=True)
+eod_upper_pct = st.sidebar.number_input(
+    "EOD upper band %",
+    min_value=0.0,
+    max_value=100.0,
+    value=10.0,
+    step=1.0,
+)
+eod_lower_pct = st.sidebar.number_input(
+    "EOD lower band %",
+    min_value=0.0,
+    max_value=100.0,
+    value=10.0,
+    step=1.0,
+)
 
 # Score filtering has been removed. This zero is retained only for old zscan
 # function signatures and is never exposed as a UI setting.
@@ -635,6 +684,8 @@ with tab1:
                     False,
                     eod_filter,
                     tuple(selected_universe),
+                    eod_upper_pct,
+                    eod_lower_pct,
                     account_capital,
                 )
             if stable_selected:
@@ -646,6 +697,8 @@ with tab1:
                     eod_filter,
                     tuple(selected_universe),
                     _day_key(),
+                    eod_upper_pct,
+                    eod_lower_pct,
                     account_capital,
                 )
 
