@@ -15,6 +15,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
+import zone_validation as zv   # zone validation section (अलग फाइल)
+
 
 st.set_page_config(
     page_title="MarketHub · Zone Scanner",
@@ -543,7 +545,7 @@ def render_zone_table(rows, scan_time=None):
         '<div class="zwrap"><table class="zhin"><thead><tr>'
         '<th>Asset</th><th>TF</th><th>Direction</th><th>Pattern</th>'
         '<th>State</th><th>Entry</th><th>Distal</th><th>SL</th>'
-        '<th>Risk %</th><th>Status</th>'
+        '<th>Risk %</th><th>Grade</th><th>ZQS</th><th>Entry (buffer)</th><th>Status</th>'
         '</tr></thead><tbody>'
     ]
 
@@ -583,6 +585,9 @@ def render_zone_table(rows, scan_time=None):
             f'<td data-label="Distal">{_fmt2(row.get("distal"))}</td>'
             f'<td data-label="SL">{row["sl"]:,.2f}</td>'
             f'<td data-label="Risk %">{_fmt2(row.get("risk_pct"))}</td>'
+            f'<td data-label="Grade">{zv.grade_badge(row.get("grade"))}</td>'
+            f'<td data-label="ZQS">{row.get("zqs") if row.get("zqs") is not None else "—"}</td>'
+            f'<td data-label="Entry (buffer)">{_fmt2(row.get("entry_buffer"))}</td>'
             f'<td data-label="Status">'
             f'{_status_badge(row.get("entry_status"))}</td>'
             f'</tr>'
@@ -755,6 +760,27 @@ with tab1:
             opt_symbol = filtered_rows[0].get("symbol")
 
         render_zone_table(filtered_rows, scan_time=_scan_ts)
+
+    # ---------------- 🧪 Zone Validation (अलग सेक्शन) ----------------
+    try:
+        import zone_validation as zv
+        import zscan
+        zv.render_universe(
+            filtered_rows,
+            scan_fn=lambda s, tf: zscan.scan(
+                s, tf,
+                strict=False,
+                lookback_months=lookback_months,
+                recommended=False,
+                min_score=SCORE_FILTER,
+                accountCapital=account_capital,
+            ),
+            key="zv_universe",
+            cap=20,
+        )
+    except Exception as _zv_ex:
+        st.caption(f"Zone validation section: {_zv_ex}")
+
     else:
         try:
             zones, dataframe, extra = load_scan(
@@ -801,6 +827,19 @@ with tab1:
                 }
                 for zone in zones
             ]
+            try:
+                _vext = extra.get("validation") if isinstance(extra, dict) else None
+                _vmap = {
+                    id(_r["_zone"]): _r
+                    for _, _r in (_vext.iterrows() if _vext is not None else [])
+                }
+            except Exception:
+                _vmap = {}
+            for _row, _zone in zip(rows, zones):
+                _vr = _vmap.get(id(_zone))
+                if _vr is not None:
+                    _row.update(zv.row_fields(_vr))
+
             if active_only:
                 rows = [
                     row
@@ -812,6 +851,21 @@ with tab1:
             scanned_symbols = [symbol]
             opt_symbol = symbol
             render_zone_table(rows, scan_time=_scan_ts)
+
+            # ---------------- 🧪 Zone Validation (अलग सेक्शन) ----------------
+            try:
+                import zone_validation as zv
+                zv.render(
+                    df=dataframe,
+                    zones=zones,
+                    key="zv_single",
+                    symbol=symbol,
+                    tf=timeframe,
+                    params=None,
+                )
+            except Exception as _zv_ex:
+                st.caption(f"Zone validation section: {_zv_ex}")
+
         except Exception as ex:
             st.error(f"Error: {ex}")
 
