@@ -10,7 +10,7 @@
         zv.render(df=dataframe, zones=zones, key="zv_single")
 
   2) universe (zscan.scan_universe_zones -> rows):
-        zv.render_universe(rows, scan_fn=lambda sym, tf: zscan.scan(sym, tf), key="zv_uni")
+        zv.render_table(rows, key="zv_table")     # ek hi table, sirf A/B grade
 
 Validation के चार नियम (17 महीने के असली बैकटेस्ट से, मूल 658 + फाइनल 79 trades):
     Q1 ज़ोन की चौड़ाई  <= 0.60 ATR   (मूल 25.1% -> 28.8%, p=0.007)
@@ -585,53 +585,174 @@ def render(df: Optional[pd.DataFrame] = None, zones: Optional[Iterable[Any]] = N
     return vdf
 
 
-def render_universe(rows: Iterable[Dict[str, Any]], scan_fn: Callable[..., Any], *,
-                    key: str = "zone_validation_uni", params: Optional[Dict[str, Any]] = None,
-                    cap: int = 25, show_chart: bool = False, **scan_kwargs) -> pd.DataFrame:
-    """Universe mode का validation section — universe rows को उसी scanner से validate करता है."""
+# ==========================================================================
+# 🧪 Compact section — ek hi table, scanner table ke format me, sirf A / B
+#   (koi metric box / chip / chart / alag A-B-C section nahi)
+# ==========================================================================
+_TF_HI = {
+    "5m": "5 Min", "10m": "10 Min", "15m": "15 Min", "30m": "30 Min",
+    "1h": "1 Hour", "2h": "2 Hours", "4h": "4 Hours", "6h": "6 Hours",
+    "75m": "75 Min", "8h": "8 Hours", "10h": "10 Hours", "12h": "12 Hours",
+    "20h": "20 Hours", "1D": "Daily", "1W": "Weekly", "1M": "Monthly",
+    "2D": "2 Days", "3M": "3 Months",
+}
+
+TABLE_CSS = """<style>
+.zwrap{overflow:auto; max-height:600px; border:1px solid #22304a; border-radius:12px; background:#0e1626; scrollbar-width:thin;}
+.zhin{width:100%; border-collapse:collapse; font-size:12px; min-width:760px;}
+.zhin thead th{position:sticky; top:0; z-index:3; text-align:left; color:#8ba1c0; font-size:10.5px; text-transform:uppercase; padding:7px 8px; border-bottom:1px solid #22304a; background:#0c1422; white-space:nowrap;}
+.zhin td{padding:6px 8px; border-bottom:1px solid #18233a; color:#d9e5f6; white-space:nowrap;}
+.zhin tr:hover{background:#131d31;}
+.zhin a.sym{color:#eaf1fb; font-weight:700; text-decoration:none;}
+.zhin a.sym:hover{color:#22d3ee; text-decoration:underline;}
+.dot.dem{color:#1ecb6b;} .dot.sup{color:#ff4b5c;}
+.st-fresh{color:#1ecb6b;} .st-tested{color:#22d3ee;} .st-broken{color:#8ba1c0;}
+@media (max-width: 768px) {
+    .zhin thead{display:none;}
+    .zhin, .zhin tbody, .zhin tr, .zhin td{display:block; width:100%; min-width:100%;}
+    .zhin tr{background:#0e1626; margin-bottom:12px; border-radius:12px; border:1px solid #22304a; padding:10px;}
+    .zhin td{display:flex; justify-content:space-between; align-items:center; border-bottom:1px dashed #18233a; padding:8px 4px; text-align:right;}
+    .zhin td::before{content:attr(data-label); color:#8ba1c0; font-weight:600; text-transform:uppercase; font-size:10px; text-align:left;}
+    .zhin td:last-child{border-bottom:0;}
+}
+</style>"""
+
+
+def _tf_hi(tf) -> str:
+    return _TF_HI.get(str(tf), str(tf))
+
+
+def _fmt2v(value) -> str:
+    return "—" if value is None else f"{float(value):,.2f}"
+
+
+def row_grade(row: Any) -> str:
+    """Row ka grade letter (A/B/C) — na ho to ''."""
+    try:
+        g = row.get("grade") if hasattr(row, "get") else None
+    except Exception:
+        g = None
+    g = str(g or "").strip().upper()[:1]
+    return g if g in ("A", "B", "C") else ""
+
+
+def _status_cell(value) -> str:
+    value = "" if value is None else str(value)
+    if value == "Waiting":
+        return '<span style="color:#4f8cff;font-weight:700;">⏳ Waiting</span>'
+    if value == "Triggered":
+        return '<span style="color:#22c55e;font-weight:700;">✅ Triggered</span>'
+    if value.startswith("Failed"):
+        return f'<span style="color:#f87171;">✖ {value.replace("Failed-", "")}</span>'
+    return value or "—"
+
+
+def _tv_url(row: Dict[str, Any]) -> str:
+    url = row.get("tv")
+    if url:
+        return str(url)
+    sym = str(row.get("symbol", "")).replace(".NS", "")
+    return f"https://www.tradingview.com/chart/?symbol=NSE:{sym}"
+
+
+def rows_table_html(rows: Iterable[Dict[str, Any]]) -> str:
+    """Scanner table (render_zone_table) ke bilkul same format me HTML table."""
+    rows = list(rows or [])
+    html = [
+        '<div class="zwrap"><table class="zhin"><thead><tr>'
+        '<th>Asset</th><th>TF</th><th>Direction</th><th>Pattern</th>'
+        '<th>State</th><th>Entry</th><th>Distal</th><th>SL</th>'
+        '<th>Risk %</th><th>Grade</th><th>ZQS</th><th>Entry (buffer)</th>'
+        '<th>Status</th>'
+        '</tr></thead><tbody>'
+    ]
+    for row in rows:
+        sym = str(row.get("symbol", "")).replace(".NS", "")
+        direction = str(row.get("dir") or "")
+        dot = ('<span class="dot dem">●</span>' if direction.lower().startswith("dem")
+               else '<span class="dot sup">●</span>')
+        state = str(row.get("state") or "")
+        entry = row.get("entry")
+        zqs = row.get("zqs")
+        html.append(
+            '<tr>'
+            f'<td data-label="Asset"><a class="sym" href="{_tv_url(row)}" target="_blank">📈 {sym}</a></td>'
+            f'<td data-label="TF">{_tf_hi(row.get("tf"))}</td>'
+            f'<td data-label="Direction">{dot} {direction}</td>'
+            f'<td data-label="Pattern">{row.get("pattern") or "—"}</td>'
+            f'<td data-label="State" class="st-{state.lower()}">{state or "—"}</td>'
+            f'<td data-label="Entry">{_fmt2v(entry)}</td>'
+            f'<td data-label="Distal">{_fmt2v(row.get("distal"))}</td>'
+            f'<td data-label="SL">{_fmt2v(row.get("sl"))}</td>'
+            f'<td data-label="Risk %">{_fmt2v(row.get("risk_pct"))}</td>'
+            f'<td data-label="Grade">{grade_badge(row_grade(row))}</td>'
+            f'<td data-label="ZQS">{zqs if zqs is not None else "—"}</td>'
+            f'<td data-label="Entry (buffer)">{_fmt2v(row.get("entry_buffer"))}</td>'
+            f'<td data-label="Status">{_status_cell(row.get("entry_status"))}</td>'
+            '</tr>'
+        )
+    html.append("</tbody></table></div>")
+    return "".join(html)
+
+
+def pick_ab_rows(rows: Iterable[Dict[str, Any]], keep: Iterable[str] = ("A", "B")) -> list:
+    """Sirf A/B grade rows — A pehle, phir entry ke qareeb wale pehle."""
+    keep = {str(g).strip().upper()[:1] for g in (keep or ())}
+    sel = [r for r in (rows or []) if row_grade(r) in keep]
+
+    def _dist(row):
+        last, entry = row.get("last"), row.get("entry")
+        try:
+            return abs(float(last) - float(entry)) / float(entry)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return 9e9
+
+    sel.sort(key=lambda r: (0 if row_grade(r) == "A" else 1, _dist(r)))
+    return sel
+
+
+def render_table(rows: Iterable[Dict[str, Any]], *, key: str = "zv_table",
+                 keep: Iterable[str] = ("A", "B"),
+                 title: str = "🧪 Zone Validation — Grade A / B",
+                 show_title: bool = True) -> pd.DataFrame:
+    """Streamlit section: ek hi table, scanner table ke format me, sirf A/B grade.
+
+    Sirf wahi zones jo upar ke scanner (zone_core.scan_zones → zscan.py) ne diye.
+    Koi naya data source nahi, koi metric box / chip / chart nahi.
+    """
     import streamlit as st
     rows = list(rows or [])
     if not rows:
-        st.info("Universe शून्य है — पहले ऊपर का scan चलाइए.")
+        st.info("Scanner table khaali hai — pehle upar scan chalaayein.")
         return pd.DataFrame()
-    st.markdown("### 🧪 Zone Validation (universe scan के ज़ोन पर)")
-    pairs = []
-    for r in rows:
-        k2 = (str(r.get("symbol", "")), str(r.get("tf", "")))
-        if k2[0] and k2[1] and k2 not in pairs:
-            pairs.append(k2)
-    if any(isinstance(r, dict) and r.get("grade") for r in rows):
-        # zscan.py patched है: validation स्कैन के साथ ही आ चुकी है — दोबारा scan नहीं.
-        vdf = vdf_from_rows(rows)
-        st.caption(f"validation स्कैन के साथ ही आ रही है (patched zscan.py) — {len(vdf)} ज़ोन में से "
-                   f"**{int((vdf['Grade'] == 'A').sum())}** A-grade. कोई दोबारा scan नहीं हुआ।")
-    else:
-        st.caption(f"ऊपर वाले scan के {len(rows)} rows में {len(pairs)} (symbol × timeframe) हैं — "
-                   f"इनमें से पहले **{min(cap, len(pairs))}** को उसी scanner से दोबारा जाँचा जा रहा है "
-                   f"(वही data, वही zone_core).")
-        bar = st.progress(0.0, text="validation चल रही है…")
-        vdf = validate_rows(rows, scan_fn, params=params, cap=cap,
-                            progress=lambda n, t, s="": bar.progress(n / max(t, 1), text=f"{n}/{t} · {s}"),
-                            **scan_kwargs)
-        bar.empty()
-    if vdf.empty:
-        st.warning("इनमें से किसी भी symbol/TF पर ज़ोन नहीं मिला. cap बढ़ाकर देखें.")
-        return vdf
-    view, cols = _section_header(vdf, key, multi=True)
-    a_view = view[view["Grade"] == "A"]
-    st.markdown(f"#### ✅ A-grade ज़ोन पूरे universe में ({len(a_view)})")
-    if a_view.empty:
-        st.warning("इस समय किसी भी symbol पर A-grade ज़ोन नहीं है.")
-    else:
-        _render_table(a_view, cols)
-        st.download_button("⬇️ A-grade ज़ोन CSV",
-                           a_view.drop(columns=[c for c in a_view.columns if c.startswith("_")]).to_csv(index=False).encode("utf-8"),
-                           file_name="validation_A_zones_universe.csv", mime="text/csv", key=f"{key}_dl")
-    with st.expander(f"◐ B-grade ({int((view['Grade'] == 'B').sum())}) — ऐच्छिक", expanded=False):
-        bv = view[view["Grade"] == "B"]
-        st.write("कोई नहीं.") if bv.empty else _render_table(bv, cols)
-    _rules_expander()
-    return vdf
+
+    graded = [r for r in rows if row_grade(r)]
+    if not graded:
+        st.info("Grade ke liye `zone_validation.py` ke saath patched `zscan.py` chahiye "
+                "(validation khud scanner ke zones par chalti hai).")
+        return pd.DataFrame()
+
+    sel = pick_ab_rows(graded, keep)
+    if show_title:
+        st.markdown(f"### {title}")
+    if not sel:
+        st.info("Abhi koi A / B grade zone nahi mila.")
+        return vdf_from_rows(graded)
+
+    st.markdown(TABLE_CSS + rows_table_html(sel), unsafe_allow_html=True)
+    return vdf_from_rows(sel)
+
+
+def render_universe(rows: Iterable[Dict[str, Any]], scan_fn: Callable[..., Any] = None, *,
+                    key: str = "zone_validation_uni",
+                    params: Optional[Dict[str, Any]] = None, cap: int = 25,
+                    show_chart: bool = False, **scan_kwargs) -> pd.DataFrame:
+    """Universe mode — ab wahi compact A/B table (koi doobara scan nahi).
+
+    ``scan_fn`` sirf compatibility ke liye rakha gaya hai; validation pehle se
+    scanner ke saath hi aa jaati hai (patched zscan.py), isliye use nahi hota.
+    """
+    return render_table(rows, key=key, title="🧪 Zone Validation — Grade A / B")
 
 
 # ==========================================================================
@@ -644,8 +765,31 @@ def render_universe(rows: Iterable[Dict[str, Any]], scan_fn: Callable[..., Any],
 # ==========================================================================
 _APP_IMPORT = "import zone_validation as zv   # zone validation section (अलग फाइल)"
 
-_APP_UNIVERSE_BLOCK = """
-    # ---------------- 🧪 Zone Validation (अलग सेक्शन) ----------------
+_APP_VALROWS_INIT = """
+_val_rows = []          # 🧪 Zone Validation section (tabs ke baad) ke liye rows
+"""
+
+_APP_VALROWS_UNI = """
+        _val_rows = filtered_rows
+"""
+
+_APP_VALROWS_SINGLE = """
+            _val_rows = rows
+"""
+
+_APP_END_BLOCK = """
+# ---------------- 🧪 Zone Validation (tabs ke baad, alag section) ----------------
+# Sirf wahi zones jo upar ke scanner (zone_core.scan_zones via zscan.py) ne diye.
+# Ek hi table, scanner table ke format me -- sirf A aur B grade.
+try:
+    import zone_validation as zv
+    zv.render_table(_val_rows, key="zv_table")
+except Exception as _zv_ex:
+    st.caption(f"Zone validation section: {_zv_ex}")
+"""
+
+# purane (ab hataye gaye) blocks — inhe file me milें to nikaal denge
+_APP_OLD_UNIVERSE_BLOCK = """    # ---------------- \U0001F9EA Zone Validation (\u0905\u0932\u0917 \u0938\u0947\u0915\u094d\u0936\u0928) ----------------
     try:
         import zone_validation as zv
         import zscan
@@ -666,8 +810,7 @@ _APP_UNIVERSE_BLOCK = """
         st.caption(f"Zone validation section: {_zv_ex}")
 """
 
-_APP_SINGLE_BLOCK = """
-            # ---------------- 🧪 Zone Validation (अलग सेक्शन) ----------------
+_APP_OLD_SINGLE_BLOCK = """            # ---------------- \U0001F9EA Zone Validation (\u0905\u0932\u0917 \u0938\u0947\u0915\u094d\u0936\u0928) ----------------
             try:
                 import zone_validation as zv
                 zv.render(
@@ -741,17 +884,29 @@ def patch_app_file(path: str = "app.py") -> list:
             text = text.replace("import streamlit as st", "import streamlit as st\n" + _APP_IMPORT, 1)
         done.append("import जोड़ा")
 
-    if 'key="zv_universe"' not in text:
+    # purane version ke andar-wale section hata do (upgrade)
+    for _old, _label in ((_APP_OLD_UNIVERSE_BLOCK, "universe"), (_APP_OLD_SINGLE_BLOCK, "single")):
+        if _old in text:
+            text = text.replace(_old, "", 1)
+            done.append(f"पुराना {_label} वाला section हटाया")
+
+    if "_val_rows = []" not in text:
+        anchor = "scanned_symbols = []\nopt_symbol = None\n_scan_ts = None\n"
+        if anchor in text:
+            text = text.replace(anchor, anchor + _APP_VALROWS_INIT, 1)
+            done.append("_val_rows की शुरुआत")
+
+    if "key=\"zv_table\"" not in text:
         anchor = "render_zone_table(filtered_rows, scan_time=_scan_ts)"
         if anchor in text:
-            text = text.replace(anchor, anchor + "\n" + _APP_UNIVERSE_BLOCK, 1)
-            done.append("universe mode में section")
+            text = text.replace(anchor, anchor + "\n" + _APP_VALROWS_UNI.strip("\n"), 1)
 
-    if 'key="zv_single"' not in text:
         anchor = "render_zone_table(rows, scan_time=_scan_ts)"
         if anchor in text:
-            text = text.replace(anchor, anchor + "\n" + _APP_SINGLE_BLOCK, 1)
-            done.append("single-symbol mode में section")
+            text = text.replace(anchor, anchor + "\n" + _APP_VALROWS_SINGLE.strip("\n"), 1)
+
+        text = text.rstrip() + "\n" + _APP_END_BLOCK
+        done.append("tabs के बाद A/B table वाला section")
 
     if "zv.row_fields" not in text:
         anchor = "            ]\n            if active_only:"
@@ -878,14 +1033,17 @@ def _print_hooks() -> int:
           "                            _row.update(_zv.row_fields(_vr))\n"
           "                    output.append(_row)")
     print("---- app.py : sys.path block के बाद ----\n" + _APP_IMPORT)
-    print("---- app.py : universe mode ----\n" + _APP_UNIVERSE_BLOCK)
-    print("---- app.py : single-symbol mode ----\n" + _APP_SINGLE_BLOCK)
+    print("---- app.py : scanned_symbols/opt_symbol/_scan_ts के बाद ----" + _APP_VALROWS_INIT)
+    print("---- app.py : `render_zone_table(filtered_rows, scan_time=_scan_ts)` के बाद ----"
+          + _APP_VALROWS_UNI)
+    print("---- app.py : `render_zone_table(rows, scan_time=_scan_ts)` के बाद ----"
+          + _APP_VALROWS_SINGLE)
+    print("---- app.py : file के सबसे अंत में (tabs के बाद) ----" + _APP_END_BLOCK)
     print("---- app.py : rows बनने के बाद ----\n" + _APP_ROW_BLOCK)
     print("---- app.py : table header + cells ----\n"
           "header: '<th>Risk %</th><th>Grade</th><th>ZQS</th><th>Entry (buffer)</th><th>Status</th>'\n"
           "row:    Grade/ZQS/Entry (buffer) के तीन <td> Status के ठीक पहले (देखें ZONE_VALIDATION_APP_STEPS.md)")
     return 0
-
 
 
 def _demo() -> int:
@@ -932,5 +1090,7 @@ if __name__ == "__main__":
         raise SystemExit(_print_hooks())
     if args.patch:
         raise SystemExit(_run_patch(args))
-    if args.demo or True:
+    if args.demo:
         raise SystemExit(_demo())
+
+    raise SystemExit(_demo())        # koi flag na ho to demo/help hi dikh jata hai
