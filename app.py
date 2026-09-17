@@ -15,8 +15,6 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-import zone_validation as zv   # zone validation section (अलग फाइल)
-
 
 st.set_page_config(
     page_title="MarketHub · Zone Scanner",
@@ -524,6 +522,53 @@ def _status_badge(entry_status):
     return entry_status or "—"
 
 
+def _grade_badge(grade):
+    """A/B/C grade ka रंगीन बैज (validation page se alag, yahin andar)."""
+    g = str(grade or "-").strip().upper()[:1]
+    colour = {"A": "#1ecb6b", "B": "#fbbf24", "C": "#ff4b5c"}.get(g, "#8ba1c0")
+    return (
+        f'<span style="color:{colour};font-weight:800;">'
+        f'{g if g in "ABC" else "—"}</span>'
+    )
+
+
+def _zv_row_fields(vrow):
+    """Validation की एक पंक्ति को row keys में बदलता है (app ke andar hi, koi import nahi).
+
+    Keys वही हैं जो zone_validation.row_fields() देता है — patched zscan.py
+    हर universe row में पहले ही मिला देता है; single-symbol mode में यह function
+    extra["validation"] से भरता है.
+    """
+    if vrow is None:
+        return {}
+    g = vrow.get if hasattr(vrow, "get") else (lambda k, d=None: d)
+
+    def _num(x):
+        try:
+            xf = float(x)
+        except (TypeError, ValueError):
+            return None
+        return round(xf, 4) if xf == xf and abs(xf) != float("inf") else None
+
+    return {
+        "grade": g("Grade"),
+        "zqs": int(g("ZQS") or 0),
+        "q1": g("Q1"), "q2": g("Q2"), "q3": g("Q3"), "q4": g("Q4"),
+        "age_bars": _num(g("उम्र (bars)")),
+        "width_atr": _num(g("चौड़ाई (ATR)")),
+        "margin_atr": _num(g("Margin (ATR)")),
+        "dep_rvol": _num(g("Dep RVOL")),
+        "entry_buffer": _num(g("Entry (30% गहराई)")),
+        "sl_distal": _num(g("SL (distal)")),
+        "tp2": _num(g("TP 1:2")), "tp3": _num(g("TP 1:3")), "tp5": _num(g("TP 1:5")),
+        "risk_pts": _num(g("Risk (pts)")),
+        "base_weight": _num(g("Base Weight")),
+        "touch_pen": _num(g("Touch penetration (ATR)")),
+        "verdict": g("फ़ैसला"),
+        "v_note": g("नोट"),
+    }
+
+
 def render_zone_table(rows, scan_time=None):
     if not rows:
         return st.info("No valid zones found.")
@@ -585,7 +630,7 @@ def render_zone_table(rows, scan_time=None):
             f'<td data-label="Distal">{_fmt2(row.get("distal"))}</td>'
             f'<td data-label="SL">{row["sl"]:,.2f}</td>'
             f'<td data-label="Risk %">{_fmt2(row.get("risk_pct"))}</td>'
-            f'<td data-label="Grade">{zv.grade_badge(row.get("grade"))}</td>'
+            f'<td data-label="Grade">{_grade_badge(row.get("grade"))}</td>'
             f'<td data-label="ZQS">{row.get("zqs") if row.get("zqs") is not None else "—"}</td>'
             f'<td data-label="Entry (buffer)">{_fmt2(row.get("entry_buffer"))}</td>'
             f'<td data-label="Status">'
@@ -666,6 +711,12 @@ account_capital = st.sidebar.number_input(
 active_only = st.sidebar.toggle("Active zones only", value=True)
 lookback = st.sidebar.selectbox("Lookback", ["All", "24", "12"])
 lookback_months = None if lookback == "All" else int(lookback)
+
+# 🧪 Zone Validation apne alag dashboard/page par hai (pages/Zone_Validation.py)
+try:
+    st.sidebar.page_link("pages/Zone_Validation.py", label="🧪 Zone Validation", icon="🧪")
+except Exception:
+    pass
 
 scanned_symbols = []
 opt_symbol = None
@@ -761,26 +812,6 @@ with tab1:
 
         render_zone_table(filtered_rows, scan_time=_scan_ts)
 
-    # ---------------- 🧪 Zone Validation (अलग सेक्शन) ----------------
-    try:
-        import zone_validation as zv
-        import zscan
-        zv.render_universe(
-            filtered_rows,
-            scan_fn=lambda s, tf: zscan.scan(
-                s, tf,
-                strict=False,
-                lookback_months=lookback_months,
-                recommended=False,
-                min_score=SCORE_FILTER,
-                accountCapital=account_capital,
-            ),
-            key="zv_universe",
-            cap=20,
-        )
-    except Exception as _zv_ex:
-        st.caption(f"Zone validation section: {_zv_ex}")
-
     else:
         try:
             zones, dataframe, extra = load_scan(
@@ -838,7 +869,7 @@ with tab1:
             for _row, _zone in zip(rows, zones):
                 _vr = _vmap.get(id(_zone))
                 if _vr is not None:
-                    _row.update(zv.row_fields(_vr))
+                    _row.update(_zv_row_fields(_vr))
 
             if active_only:
                 rows = [
@@ -851,20 +882,6 @@ with tab1:
             scanned_symbols = [symbol]
             opt_symbol = symbol
             render_zone_table(rows, scan_time=_scan_ts)
-
-            # ---------------- 🧪 Zone Validation (अलग सेक्शन) ----------------
-            try:
-                import zone_validation as zv
-                zv.render(
-                    df=dataframe,
-                    zones=zones,
-                    key="zv_single",
-                    symbol=symbol,
-                    tf=timeframe,
-                    params=None,
-                )
-            except Exception as _zv_ex:
-                st.caption(f"Zone validation section: {_zv_ex}")
 
         except Exception as ex:
             st.error(f"Error: {ex}")
