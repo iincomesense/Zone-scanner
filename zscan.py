@@ -16,6 +16,12 @@ import zone_core
 import zdata
 
 
+try:                                    # validation layer (अलग फाइल, optional)
+    import zone_validation as _zv
+except Exception:                       # कभी भी app को न रोके
+    _zv = None
+
+
 DEFAULT_EOD_UPPER_PCT = 10.0
 DEFAULT_EOD_LOWER_PCT = 10.0
 
@@ -403,6 +409,15 @@ def scan(
         accountCapital=accountCapital,
     )
 
+    try:
+        validation = (
+            _zv.validate_zones(df, zones, symbol=symbol, tf=timeframe)
+            if _zv is not None
+            else None
+        )
+    except Exception:
+        validation = None
+
     if recommended:
         recommendation = zone_core.recommended_trade_setup(
             accountCapital=accountCapital
@@ -427,10 +442,13 @@ def scan(
         result = (
             zones,
             df,
-            {"recommended": recommendation, "roi": roi},
+            {"recommended": recommendation, "roi": roi, "validation": validation},
         )
     else:
-        result = (zones, df, zone_core.backtest_summary(zones, df))
+        _summary = zone_core.backtest_summary(zones, df)
+        if isinstance(_summary, dict):
+            _summary["validation"] = validation
+        result = (zones, df, _summary)
 
     if cache_key is not None:
         with _scan_lock:
@@ -523,6 +541,13 @@ def scan_universe_zones(
                     else None
                 )
                 tv_url = _tv.chart_url(sym, tf)
+                _vby = {}
+                if _zv is not None:
+                    try:
+                        _vdf = _zv.validate_zones(df, zones, symbol=sym, tf=tf)
+                        _vby = {id(_r["_zone"]): _r for _, _r in _vdf.iterrows()}
+                    except Exception:
+                        _vby = {}
 
                 for zone in zones:
                     if active_only and zone.state not in ("Fresh", "Tested"):
@@ -552,8 +577,7 @@ def scan_universe_zones(
                     except Exception:
                         target_context = {}
 
-                    output.append(
-                        {
+                    _row = {
                             "tp_score": target_context.get("score"),
                             "tp_max": target_context.get("max"),
                             "tp_label": target_context.get("label", ""),
@@ -616,8 +640,12 @@ def scan_universe_zones(
                                 2,
                             ),
                             "mcap_cr": zdata.MCAP_CR.get(sym),
-                        }
-                    )
+                    }
+                    if _vby:
+                        _vr = _vby.get(id(zone))
+                        if _vr is not None:
+                            _row.update(_zv.row_fields(_vr))
+                    output.append(_row)
             except Exception:
                 continue
         return output
