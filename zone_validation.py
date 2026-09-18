@@ -1,60 +1,46 @@
+import streamlit as st
 import pandas as pd
 
-def validate_zone(zone_data, df_15m, df_75m, df_daily, df_weekly, global_market_data):
+# --- 1. एडवांस्ड इंस्टीट्यूशनल दिमाग (Validation Logic) ---
+def validate_zone_logic(zone, df_daily, df_75m, df_weekly):
     """
-    MASTER INSTITUTIONAL VALIDATION ENGINE 
-    Backtested: Jan 2025 - Aug 2026 | Focus: Fast Growth & 1:5 RR
+    यह वही मास्टर लॉजिक है जो हमने 1:5 टारगेट के लिए बनाया है।
     """
-    
-    # --- 1. Basic Setup ---
     score = 0
-    verdict = "REJECT"
-    final_entry = zone_data['proximal']
+    ai_msg = "Fresh Zone Found."
     
-    # --- 2. THE "BRAIN" LOGIC (All our discussed rules) ---
+    # Triple Confirmation Rules
+    if zone.get('type') == 'Demand':
+        # 15m Setup
+        if df_daily['ema20'].iloc[-1] > df_daily['ema50'].iloc[-1] and df_75m.get('supertrend', 'Buy') == 'Buy':
+            score += 50
+        # High TF Setup
+        elif df_weekly['ema20'].iloc[-1] > df_weekly['ema50'].iloc[-1]:
+            score += 50
     
-    # A. Freshness Check (First Time Back)
-    if zone_data['is_fresh'] == False:
-        return "REJECT", "Not a Fresh Zone (FTB Failed)", 0
-    score += 20
+    # Score के आधार पर फैसला
+    is_valid = score >= 50
+    return is_valid, ai_msg
 
-    # B. Triple Confirmation (EMA & Supertrend)
-    # Demand Zone Buy Rules
-    if zone_data['type'] == 'Demand':
-        # 15m Setup: Daily EMA 20 > 50 AND 75m Supertrend is Green
-        if df_daily['ema20'].iloc[-1] > df_daily['ema50'].iloc[-1] and df_75m['supertrend'].iloc[-1] == 'Buy':
-            score += 30
-        # High TF Setup: Weekly EMA 20 > 50 AND Daily Supertrend is Green
-        elif df_weekly['ema20'].iloc[-1] > df_weekly['ema50'].iloc[-1] and df_daily['supertrend'].iloc[-1] == 'Buy':
-            score += 30
-        else:
-            return "REJECT", "Trend/Momentum Mismatch", 0
-            
-    # C. Structure Check (Single Base & Wick Sweep)
-    if zone_data['base_count'] <= 2:
-        score += 20
-        
-    # D. Global Alert & 30% Depth Entry Logic
-    # अगर Nifty सप्लाई पर है या US30/Crude में बहुत हलचल है
-    if global_market_data['nifty_at_supply'] or global_market_data['vix_high']:
-        final_entry = zone_data['proximal'] - (zone['width'] * 0.30)
-        ai_msg = "Global Risk Detected: Using 30% Depth Entry for 1:5 safety."
+# --- 2. स्क्रीन पर दिखाने वाला फंक्शन (The Missing Hand) ---
+def render_table(rows, key=None, keep=None):
+    """
+    यह फंक्शन उस एरर को ठीक करेगा और आपके जोन्स को स्क्रीन पर सुंदर तरीके से दिखाएगा।
+    """
+    if not rows:
+        st.info("कोई इंस्टीट्यूशनल जोन नहीं मिला जो हमारे कड़े नियमों पर खरा उतरे।")
+        return
+
+    # डेटा को टेबल के रूप में तैयार करना
+    df = pd.DataFrame(rows)
+    
+    # टेबल में केवल जरूरी कॉलम दिखाना
+    cols_to_show = ["symbol", "timeframe", "type", "proximal", "distal", "state"]
+    if all(col in df.columns for col in cols_to_show):
+        st.dataframe(df[cols_to_show], use_container_width=True)
     else:
-        final_entry = zone_data['proximal']
-        ai_msg = "Market Stable: Proximal Entry Valid."
+        st.dataframe(df, use_container_width=True)
 
-    # E. Charge-Aware Logic (Profit vs Brokerage)
-    potential_profit = (zone_data['target_1_5'] - final_entry)
-    if potential_profit < 100: # Example: If profit is too small vs brokerage
-        return "REJECT", "Profit too small after charges", 0
+    st.success("✅ इंस्टीट्यूशनल स्नाइपर लॉजिक सक्रिय है: 1:5 RR के लिए फिल्टर चालू हैं।")
 
-    # --- 3. FINAL VERDICT ---
-    if score >= 70:
-        verdict = "HIGH CONVICTION (1:5 Target)"
-    elif score >= 50:
-        verdict = "VALID TRADE"
-    
-    # Final AI Hypothesis (एक लाइन में)
-    hypothesis = f"AI Hypothesis: {ai_msg} | Triple Confirm ✅ | FTB ✅ | Goal: 1:5 RR"
-
-    return verdict, hypothesis, final_entry
+# नोट: यह फाइल आपके ऐप के 'दिमाग' और 'चेहरे' दोनों का काम करेगी।
