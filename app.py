@@ -4,41 +4,33 @@ from fastapi.templating import Jinja2Templates
 import json, os, datetime
 
 app = FastAPI()
+
+# पक्का करें कि templates फोल्डर या करंट डायरेक्टरी सही है
 templates = Jinja2Templates(directory=".")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    # भारतीय समय (IST) के अनुसार वर्तमान समय निकालें
-    # UTC + 5:30 = IST
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
     
-    # रात 11:30 PM (23:30) से सुबह 8:00 AM तक टर्मिनल को 'CLOSED' दिखाना
-    is_closed = False
-    if now.hour >= 23 and now.minute >= 30:
-        is_closed = True
-    if now.hour < 8:
-        is_closed = True
-
-    if is_closed:
-        return HTMLResponse("""
-        <html>
-            <body style='background:#000; color:#444; font-family:monospace; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;'>
-                <div style='text-align:center;'>
-                    <div style='font-size:24px; font-weight:bold; margin-bottom:10px;'>TERMINAL CLOSED</div>
-                    <div style='font-size:12px; letter-spacing:2px;'>REOPENS AT 08:00 AM IST</div>
-                </div>
-            </body>
-        </html>
-        """)
+    # समय चेक (11:30 PM to 8 AM)
+    if (now.hour == 23 and now.minute >= 30) or (now.hour < 8):
+        return HTMLResponse("<html><body style='background:#000;color:#444;text-align:center;padding-top:100px;font-family:monospace;'>TERMINAL CLOSED. REOPENS AT 8 AM.</body></html>")
     
-    # ट्रेड्स डेटा लोड करना
     trades = []
+    # चेक करें कि क्या फाइल मौजूद है
     if os.path.exists("results.json"):
         try:
             with open("results.json", "r") as f:
                 trades = json.load(f)
-        except:
+        except Exception as e:
+            print(f"JSON Error: {e}")
             trades = []
-    
-    # index.html के साथ डेटा भेजना
-    return templates.TemplateResponse("index.html", {"request": request, "trades": trades})
+
+    # अगर index.html फाइल नहीं मिली तो सुरक्षा के लिए चेक
+    if not os.path.exists("index.html"):
+        return HTMLResponse(f"<html><body><h3>Error: index.html not found in root directory.</h3><p>Current files: {os.listdir('.')}</p></body></html>")
+
+    try:
+        return templates.TemplateResponse("index.html", {"request": request, "trades": trades})
+    except Exception as e:
+        return HTMLResponse(f"<html><body><h3>Template Error</h3><p>{str(e)}</p></body></html>")
