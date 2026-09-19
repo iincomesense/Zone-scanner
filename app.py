@@ -4,33 +4,30 @@ from fastapi.templating import Jinja2Templates
 import json, os, datetime
 
 app = FastAPI()
-
-# पक्का करें कि templates फोल्डर या करंट डायरेक्टरी सही है
+# टेम्पलेट्स के लिए करंट डायरेक्टरी सेट करना
 templates = Jinja2Templates(directory=".")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
+    # भारतीय समय (IST) सेट करना
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
     
-    # समय चेक (11:30 PM to 8 AM)
+    # रात 11:30 PM से सुबह 8 AM तक 'Closed' मैसेज
     if (now.hour == 23 and now.minute >= 30) or (now.hour < 8):
-        return HTMLResponse("<html><body style='background:#000;color:#444;text-align:center;padding-top:100px;font-family:monospace;'>TERMINAL CLOSED. REOPENS AT 8 AM.</body></html>")
+        return HTMLResponse("<html><body style='background:#000;color:#555;text-align:center;padding-top:100px;font-family:monospace;'>TERMINAL CLOSED. REOPENS AT 8 AM IST.</body></html>")
     
-    trades = []
-    # चेक करें कि क्या फाइल मौजूद है
+    trades_data = []
     if os.path.exists("results.json"):
         try:
             with open("results.json", "r") as f:
-                trades = json.load(f)
+                data = f.read()
+                if data:
+                    trades_data = json.loads(data)
         except Exception as e:
-            print(f"JSON Error: {e}")
-            trades = []
-
-    # अगर index.html फाइल नहीं मिली तो सुरक्षा के लिए चेक
-    if not os.path.exists("index.html"):
-        return HTMLResponse(f"<html><body><h3>Error: index.html not found in root directory.</h3><p>Current files: {os.listdir('.')}</p></body></html>")
-
-    try:
-        return templates.TemplateResponse("index.html", {"request": request, "trades": trades})
-    except Exception as e:
-        return HTMLResponse(f"<html><body><h3>Template Error</h3><p>{str(e)}</p></body></html>")
+            print(f"Error reading results: {e}")
+    
+    # कॉन्टेक्स्ट को कीवर्ड (context=) के साथ भेजना ज्यादा सुरक्षित है
+    return templates.TemplateResponse(
+        name="index.html", 
+        context={"request": request, "trades": trades_data}
+    )
