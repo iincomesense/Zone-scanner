@@ -1,57 +1,44 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
-from jinja2 import Template
-import pandas as pd
-import os
+from fastapi.templating import Jinja2Templates
+import json, os, datetime
 
 app = FastAPI()
-
-HTML_PAGE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Sniper Zone Dashboard</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0e1117; color: white; padding: 30px; }
-        .container { max-width: 1000px; margin: auto; }
-        h1 { color: #00ff88; border-bottom: 2px solid #333; padding-bottom: 10px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); }
-        th, td { border: 1px solid #2d2d2d; padding: 15px; text-align: left; }
-        th { background: #1f2937; color: #00ff88; font-weight: 600; }
-        tr:hover { background: #1a202c; }
-        .status-badge { background: #059669; color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🎯 Sniper Demand Zones (Explosive Mode)</h1>
-        <p>Strategy: <b>zone_core.py</b> + <b>2 Marubozu Validation</b></p>
-        <p>Capital: ₹25,000 | System Refresh: Nightly (9:30 PM IST)</p>
-        <table>
-            <tr>
-                <th>Date</th><th>Stock</th><th>Entry (Limit)</th><th>SL</th><th>Target (1:5)</th><th>Status</th>
-            </tr>
-            {% for trade in trades %}
-            <tr>
-                <td>{{ trade.Date }}</td><td><b>{{ trade.Symbol }}</b></td>
-                <td>{{ trade.Entry }}</td><td>{{ trade.SL }}</td><td>{{ trade.Target }}</td>
-                <td><span class="status-badge">{{ trade.Status }}</span></td>
-            </tr>
-            {% endfor %}
-        </table>
-        {% if not trades %}
-        <p style="text-align:center; margin-top:50px; color:#666;">अभी कोई सक्रिय 'Explosive' ज़ोन नहीं मिला। कृपया कल चेक करें।</p>
-        {% endif %}
-    </div>
-</body>
-</html>
-"""
+templates = Jinja2Templates(directory=".")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    trades = []
-    if os.path.exists("results.csv"):
-        df = pd.read_csv("results.csv")
-        trades = df.to_dict(orient="records")
+    # भारतीय समय (IST) के अनुसार वर्तमान समय निकालें
+    # UTC + 5:30 = IST
+    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
     
-    return Template(HTML_PAGE).render(trades=trades)
+    # रात 11:30 PM (23:30) से सुबह 8:00 AM तक टर्मिनल को 'CLOSED' दिखाना
+    is_closed = False
+    if now.hour >= 23 and now.minute >= 30:
+        is_closed = True
+    if now.hour < 8:
+        is_closed = True
+
+    if is_closed:
+        return HTMLResponse("""
+        <html>
+            <body style='background:#000; color:#444; font-family:monospace; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;'>
+                <div style='text-align:center;'>
+                    <div style='font-size:24px; font-weight:bold; margin-bottom:10px;'>TERMINAL CLOSED</div>
+                    <div style='font-size:12px; letter-spacing:2px;'>REOPENS AT 08:00 AM IST</div>
+                </div>
+            </body>
+        </html>
+        """)
+    
+    # ट्रेड्स डेटा लोड करना
+    trades = []
+    if os.path.exists("results.json"):
+        try:
+            with open("results.json", "r") as f:
+                trades = json.load(f)
+        except:
+            trades = []
+    
+    # index.html के साथ डेटा भेजना
+    return templates.TemplateResponse("index.html", {"request": request, "trades": trades})
