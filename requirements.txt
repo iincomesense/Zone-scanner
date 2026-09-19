@@ -4,3 +4,4 @@ yfinance
 pandas
 tqdm
 jinja2
+numpy
