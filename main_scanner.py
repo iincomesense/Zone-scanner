@@ -1,86 +1,71 @@
 import pandas as pd
 import yfinance as yf
 from tqdm import tqdm
+import zone_core  # आपका मूल zone_core.py इम्पोर्ट कर रहा है
 import os
 
-# आपके zone_core.py को सीधे इम्पोर्ट करना (बिना किसी बदलाव के)
-# हम मान रहे हैं कि zone_core.py में 'find_zones' या सिमिलर फंक्शन है
-try:
-    import zone_core
-except ImportError:
-    print("❌ Error: zone_core.py नहीं मिली। कृपया फाइल अपलोड करें।")
-
-class SniperScanner:
-    def __init__(self, capital=25000, rr=4):
-        self.capital = capital
-        self.rr = rr
-
-    def is_marubozu(self, candle):
-        """अतिरिक्त वैलिडेशन नियम: 2 Marubozu Leg-out"""
-        if candle is None: return False
-        body = abs(candle['Close'] - candle['Open'])
-        total_range = candle['High'] - candle['Low']
-        # बॉडी 75% से ज्यादा और साइज 0.6% से बड़ा
-        return (body > total_range * 0.75) and (body > candle['Open'] * 0.006)
-
-    def process_stock(self, symbol):
-        try:
-            # 1. डेटा लाना (20 महीने का बैकटेस्ट सपोर्ट के लिए)
-            df = yf.download(symbol, period="2y", interval="1d", progress=False)
-            if df.empty: return None
-
-            # 2. zone_core.py के मूल लॉजिक से ज़ोन ढूंढना (बिना किसी बदलाव के)
-            # यहाँ हम zone_core के मुख्य फंक्शन को कॉल कर रहे हैं
-            zones = zone_core.identify_zones(df) # मान लीजिए फंक्शन का नाम ये है
-            
-            if not zones: return None
-
-            valid_trades = []
-            for zone in zones:
-                idx = zone['base_index'] # ज़ोन खत्म होने का इंडेक्स
-                
-                # चेक करें कि क्या पर्याप्त डेटा है आगे की कैंडल्स देखने के लिए
-                if idx + 2 >= len(df): continue
-                
-                leg_out1 = df.iloc[idx + 1]
-                leg_out2 = df.iloc[idx + 2]
-
-                # 3. हमारा अतिरिक्त 'Explosive Validation' नियम
-                if self.is_marubozu(leg_out1) and self.is_marubozu(leg_out2):
-                    entry = round(leg_out1['Open'], 2)
-                    sl = round(zone['low_price'] * 0.998, 2)
-                    target = round(entry + (entry - sl) * self.rr, 2)
-                    
-                    valid_trades.append({
-                        "Date": df.index[idx+1].strftime('%Y-%m-%d'),
-                        "Symbol": symbol,
-                        "Entry": entry,
-                        "SL": sl,
-                        "Target": target,
-                        "Type": "Explosive Demand",
-                        "Status": "READY 🎯"
-                    })
-            
-            return valid_trades[-1] if valid_trades else None
-        except Exception as e:
-            return None
+# --- 2 Marubozu Validation नियम ---
+def is_marubozu(df, idx):
+    if idx >= len(df): return False
+    candle = df.iloc[idx]
+    body = abs(candle['close'] - candle['open'])
+    total_range = candle['high'] - candle['low']
+    # नियम: बॉडी 75% से ज्यादा और भाव में कम से कम 0.6% की बढ़त
+    return (total_range > 0) and (body > total_range * 0.75) and (body > candle['open'] * 0.006)
 
 def run_automation():
     # zdata.py से स्टॉक्स की लिस्ट लाना
-    from zdata import symbols # आपकी फाइल से
-    
-    scanner = SniperScanner(capital=25000, rr=4)
-    results = []
+    try:
+        from zdata import symbols
+    except ImportError:
+        # अगर zdata.py नहीं है, तो उदाहरण के लिए कुछ स्टॉक्स
+        symbols = ["RELIANCE.NS", "HDFCBANK.NS", "SBIN.NS", "TCS.NS", "INFY.NS"]
 
-    print(f"🚀 {len(symbols)} स्टॉक्स का गहन विश्लेषण शुरू...")
-    for s in tqdm(symbols):
-        res = scanner.process_stock(s)
-        if res:
-            results.append(res)
+    all_verified_trades = []
+    print(f"🚀 {len(symbols)} स्टॉक्स का विश्लेषण शुरू (Explosive Mode)...")
 
-    # रिजल्ट को CSV में सेव करना (वेबसाइट इसी से डेटा लेगी)
-    pd.DataFrame(results).to_csv("results.csv", index=False)
-    print(f"✅ स्कैन पूरा। {len(results)} जैकपॉट मिले।")
+    for symbol in tqdm(symbols):
+        try:
+            # 1. डेटा लाना (कॉलम नाम स्माल केस में होने चाहिए zone_core के लिए)
+            temp_df = yf.download(symbol, period="2y", interval="1d", progress=False)
+            if temp_df.empty: continue
+            
+            df = temp_df.rename(columns={
+                'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'
+            })
+
+            # 2. zone_core.py के मूल लॉजिक से ज़ोन ढूंढना (0% बदलाव)
+            found_zones = zone_core.scan_zones(df, accountCapital=25000)
+            
+            if not found_zones: continue
+
+            # 3. '2 Marubozu' वैलिडेशन फिल्टर (अतिरिक्त नियम)
+            for zone in found_zones:
+                idx = zone.createdBarIndex # Leg-out 1 का इंडेक्स
+                
+                # चेक करें कि Leg-out 1 और Leg-out 2 दोनों Marubozu हैं या नहीं
+                if is_marubozu(df, idx) and is_marubozu(df, idx + 1):
+                    # केवल वही ज़ोन लें जो अभी भी 'Fresh' या 'Tested' हैं (टूटे नहीं हैं)
+                    if zone.state in ["Fresh", "Tested"]:
+                        all_verified_trades.append({
+                            "Date": zone.timestamp.strftime('%Y-%m-%d') if zone.timestamp else "N/A",
+                            "Symbol": symbol,
+                            "Entry": round(zone.proxVal, 2),
+                            "SL": round(zone.slVal, 2),
+                            "Target": round(zone.tpVal, 2),
+                            "Pattern": zone.patternType,
+                            "Status": "VALIDATED ✅"
+                        })
+        except Exception as e:
+            continue
+
+    # रिजल्ट को CSV में सेव करना (वेबसाइट यहीं से डेटा उठाएगी)
+    res_df = pd.DataFrame(all_verified_trades)
+    if not res_df.empty:
+        res_df.to_csv("results.csv", index=False)
+        print(f"✅ स्कैन पूरा। {len(all_verified_trades)} जैकपॉट मिले।")
+    else:
+        print("❌ कोई भी ज़ोन Explosive नियमों पर खरा नहीं उतरा।")
 
 if __name__ == "__main__":
     run_automation()
