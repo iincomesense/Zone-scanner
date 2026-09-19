@@ -1,38 +1,34 @@
-name: Nightly Algo Scan
+name: Institutional Master Schedule
 on:
   schedule:
-    - cron: '30 15 * * *' # हर रात 9:30 PM IST (4 PM UTC)
-  workflow_dispatch: # मैन्युअल चलाने का बटन
+    - cron: '30 15 * * *' # 9 PM AI Summary (IST)
+    - cron: '00 16 * * *' # 9:30 PM Scan (IST)
+    - cron: '00 18 * * *' # 11:30 PM Cleanup (IST)
+  workflow_dispatch:
 
 jobs:
-  build:
+  trade_ops:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v2
-
-      - name: Set up Python
+      - uses: actions/checkout@v2
+      - name: Setup Python
         uses: actions/setup-python@v2
-        with:
-          python-version: '3.9'
-
-      - name: Install dependencies
+        with: {python-version: '3.9'}
+      - name: Install deps
+        run: pip install yfinance pandas fastapi uvicorn jinja2 numpy
+      - name: Run Operation
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
         run: |
-          pip install yfinance pandas tqdm fastapi uvicorn jinja2 numpy
-
-      - name: Run Scan Logic
-        run: |
+          # रात 9:30 बजे (UTC 16:00) स्कैन रन करना
           python main_scanner.py
-
-      - name: Commit & Push Results
+          # रात 11:30 बजे (UTC 18:00) डेटा क्लियर करना
+          if [ "$(date +%H)" == "18" ]; then rm -f results.json; fi
+      - name: Push Updates
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          # चेक करें कि क्या फाइल बनी है और उसमें डेटा है
-          if [ -f results.csv ] && [ -s results.csv ]; then
-            git add results.csv
-            git commit -m "Auto-update trades: $(date)"
-            git push
-          else
-            echo "सूचना: आज कोई नया 'Explosive' सिग्नल नहीं मिला, इसलिए फाइल अपडेट नहीं की गई।"
-          fi
+          git add .
+          git commit -m "System Sync: $(date)" || exit 0
+          git push
