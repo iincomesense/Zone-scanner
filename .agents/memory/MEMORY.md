@@ -1,1 +1,0 @@
-- [Intraday opening volume](intraday-volume.md) — Yahoo 60m opening candles can report zero volume while TradingView has the real value.
