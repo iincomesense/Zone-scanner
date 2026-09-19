@@ -1,7 +1,6 @@
 fastapi
 uvicorn
+jinja2
 yfinance
 pandas
-tqdm
-jinja2
 numpy
