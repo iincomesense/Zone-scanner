@@ -1,26 +1,12 @@
-name: Nightly Algo Scan
-on:
-  schedule:
-    - cron: '30 15 * * *' 
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.9'
-      - name: Install dependencies
-        run: pip install yfinance pandas tqdm fastapi uvicorn jinja2 numpy
-      - name: Run Scan Logic
-        run: python main_scanner.py
-      - name: Commit & Push Results
+- name: Commit & Push Results
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add results.csv
-          git commit -m "Auto-update trades" || exit 0
-          git push
+          # अगर फाइल बनी है तभी उसे ऐड और कमिट करें
+          if [ -f results.csv ]; then
+            git add results.csv
+            git commit -m "Auto-update trades: $(date)"
+            git push
+          else
+            echo "कोई ट्रेड नहीं मिला, इसलिए फाइल नहीं बनाई गई।"
+          fi
