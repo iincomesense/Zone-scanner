@@ -3,4 +3,3 @@ uvicorn
 jinja2
 yfinance
 pandas
-numpy
